@@ -1,8 +1,10 @@
 """
 title: System Diagnostics
 description: Query multiple Ollama instances for models, GPU status, health, and control.
-             Supports multi-machine homelab setups with named instances.
-version: 1.0.0
+             Instances are configured via OLLAMA_INSTANCES below.
+             Add remote machines by adding OLLAMA_REMOTE_<name>=http://<ip>:11434
+             to your .env and re-running post-install.sh, or edit OLLAMA_INSTANCES directly.
+version: 1.1.0
 """
 
 import httpx
@@ -32,7 +34,7 @@ class Tools:
         return url, None
 
     async def check_health(self, instance: str = "local") -> str:
-        """Ping an Ollama instance to confirm it is reachable. instance: local | remote1"""
+        """Ping an Ollama instance to confirm it is reachable. instance: local | remote1 | remote2 ..."""
         url, err = self._instance_url(instance)
         if err:
             return json.dumps({"error": err})

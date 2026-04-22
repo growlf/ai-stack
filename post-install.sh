@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # ─── post-install.sh ──────────────────────────────────────────────────────────
 # Automates Open WebUI configuration after the stack is running.
+# Reads OLLAMA_REMOTE_* entries from .env to register all remote instances.
 # Uses verified API endpoints from Open WebUI v0.9.x source.
 #
 # Verified prefixes from main.py:
@@ -34,6 +35,22 @@ WEBUI_PORT="${WEBUI_PORT:-3000}"
 WEBUI_URL="http://localhost:${WEBUI_PORT}"
 PIPELINES_API_KEY="${PIPELINES_API_KEY:-changeme}"
 OPEN_TERMINAL_API_KEY="${OPEN_TERMINAL_API_KEY:-changeme}"
+
+# ─── Collect remote instances from .env ───────────────────────────────────────
+# Reads all OLLAMA_REMOTE_<name>=<url> entries into an associative array
+declare -A REMOTE_INSTANCES
+while IFS='=' read -r key val; do
+    [[ "$key" =~ ^OLLAMA_REMOTE_(.+)$ ]] || continue
+    name="${BASH_REMATCH[1]}"
+    # Strip inline comments and whitespace
+    val="${val%%#*}"; val="${val// /}"
+    [[ -n "$val" ]] && REMOTE_INSTANCES["$name"]="$val"
+done < "${SCRIPT_DIR}/.env"
+
+info "Local instance:   local → http://ollama-arc:11434"
+for name in "${!REMOTE_INSTANCES[@]}"; do
+    info "Remote instance:  ${name} → ${REMOTE_INSTANCES[$name]}"
+done
 
 # ─── Wait for Open WebUI ──────────────────────────────────────────────────────
 header "Waiting for Open WebUI"
@@ -117,37 +134,48 @@ fi
 # ─── Step 2: Connections ──────────────────────────────────────────────────────
 header "Connections"
 
-# GET current ollama config to preserve existing OLLAMA_API_CONFIGS
-OLLAMA_CFG=$(curl -sf http://localhost:${WEBUI_PORT}/ollama/config \
+# ── Ollama: local + all remote instances ──────────────────────────────────────
+OLLAMA_CFG=$(curl -sf "${WEBUI_URL}/ollama/config" \
     -H "Authorization: Bearer ${TOKEN}" 2>/dev/null || echo "{}")
 
-OPENAI_CFG=$(curl -sf http://localhost:${WEBUI_PORT}/openai/config \
-    -H "Authorization: Bearer ${TOKEN}" 2>/dev/null || echo "{}")
+# Build URL list: local first, then all remotes
+OLLAMA_URLS='["http://ollama-arc:11434"'
+OLLAMA_API_CFGS='{"0":{"enable":true,"tags":[],"prefix_id":"","model_ids":[],"connection_type":"local","auth_type":"bearer","key":""}}'
 
-# Update Ollama config — preserve existing API configs, just set URL
-OLLAMA_RESULT=$(echo "$OLLAMA_CFG" | python3 -c "
+idx=1
+for name in "${!REMOTE_INSTANCES[@]}"; do
+    url="${REMOTE_INSTANCES[$name]}"
+    OLLAMA_URLS+=",\"${url}\""
+    OLLAMA_API_CFGS=$(echo "$OLLAMA_API_CFGS" | python3 -c "
 import sys, json
-cfg = json.load(sys.stdin)
-cfg['OLLAMA_BASE_URLS'] = ['http://ollama-arc:11434']
-cfg.setdefault('OLLAMA_API_CONFIGS', {'0': {
-    'enable': True, 'tags': [], 'prefix_id': '',
-    'model_ids': [], 'connection_type': 'local',
-    'auth_type': 'bearer', 'key': ''
-}})
-print(json.dumps(cfg))
-" | curl -sf -X POST http://localhost:${WEBUI_PORT}/ollama/config/update \
+cfgs = json.load(sys.stdin)
+cfgs['${idx}'] = {'enable': True, 'tags': [], 'prefix_id': '',
+                  'model_ids': [], 'connection_type': 'external',
+                  'auth_type': 'bearer', 'key': ''}
+print(json.dumps(cfgs))
+")
+    (( idx++ )) || true
+done
+OLLAMA_URLS+="]"
+
+OLLAMA_PAYLOAD="{\"OLLAMA_BASE_URLS\":${OLLAMA_URLS},\"OLLAMA_API_CONFIGS\":${OLLAMA_API_CFGS}}"
+
+RESULT=$(curl -sf -X POST "${WEBUI_URL}/ollama/config/update" \
     -H "Authorization: Bearer ${TOKEN}" \
     -H "Content-Type: application/json" \
-    -d @- 2>/dev/null || echo "")
+    -d "$OLLAMA_PAYLOAD" 2>/dev/null || echo "")
 
-if echo "$OLLAMA_RESULT" | grep -q "ollama-arc"; then
-    success "Ollama connection verified: http://ollama-arc:11434"
+if echo "$RESULT" | grep -q "ollama-arc"; then
+    success "Ollama connections configured (local + ${#REMOTE_INSTANCES[@]} remote)"
 else
-    warn "Could not update Ollama config — set manually in Connections."
+    warn "Could not update Ollama config — set manually in Admin Panel → Connections"
 fi
 
-# Update OpenAI/Pipelines config
-OPENAI_RESULT=$(echo "$OPENAI_CFG" | python3 -c "
+# ── OpenAI/Pipelines ──────────────────────────────────────────────────────────
+OPENAI_CFG=$(curl -sf "${WEBUI_URL}/openai/config" \
+    -H "Authorization: Bearer ${TOKEN}" 2>/dev/null || echo "{}")
+
+RESULT=$(echo "$OPENAI_CFG" | python3 -c "
 import sys, json
 cfg = json.load(sys.stdin)
 urls = cfg.get('OPENAI_API_BASE_URLS', [])
@@ -166,29 +194,28 @@ cfg['OPENAI_API_BASE_URLS'] = urls
 cfg['OPENAI_API_KEYS'] = keys
 cfg['OPENAI_API_CONFIGS'] = api_cfgs
 print(json.dumps(cfg))
-" | curl -sf -X POST http://localhost:${WEBUI_PORT}/openai/config/update \
+" | curl -sf -X POST "${WEBUI_URL}/openai/config/update" \
     -H "Authorization: Bearer ${TOKEN}" \
     -H "Content-Type: application/json" \
     -d @- 2>/dev/null || echo "")
 
-if echo "$OPENAI_RESULT" | grep -q "pipelines"; then
-    success "Pipelines connection verified: http://pipelines:9099"
+if echo "$RESULT" | grep -q "pipelines"; then
+    success "Pipelines connection configured: http://pipelines:9099"
 else
-    warn "Could not update Pipelines config — set manually in Connections."
+    warn "Could not configure Pipelines — set manually in Admin Panel → Connections"
 fi
 
 
 # ─── Step 3: Open Terminal ────────────────────────────────────────────────────
 header "Open Terminal"
 
-# Check if already configured
-EXISTING_TERMS=$(curl -sf http://localhost:${WEBUI_PORT}/api/v1/terminals/ \
+EXISTING_TERMS=$(curl -sf "${WEBUI_URL}/api/v1/terminals/" \
     -H "Authorization: Bearer ${TOKEN}" 2>/dev/null || echo "[]")
 
 if echo "$EXISTING_TERMS" | grep -q "open-terminal"; then
-    success "Open Terminal already configured: http://open-terminal:8000"
+    success "Open Terminal already configured."
 else
-    RESULT=$(curl -sf -X POST http://localhost:${WEBUI_PORT}/api/v1/terminals/add \
+    RESULT=$(curl -sf -X POST "${WEBUI_URL}/api/v1/terminals/add" \
         -H "Authorization: Bearer ${TOKEN}" \
         -H "Content-Type: application/json" \
         -d "{\"url\":\"http://open-terminal:8000\",\"name\":\"Local\",\"key\":\"${OPEN_TERMINAL_API_KEY}\"}" \
@@ -201,40 +228,73 @@ else
     fi
 fi
 
-
-# ─── Step 4: Install System Diagnostics tool ──────────────────────────────────
+# ─── Step 4: Install/update System Diagnostics tool ──────────────────────────
 header "System Diagnostics Tool"
 
 TOOL_FILE="${SCRIPT_DIR}/tools/system_diagnostics.py"
+[[ -f "$TOOL_FILE" ]] || { warn "tools/system_diagnostics.py not found."; }
 
-if [[ ! -f "$TOOL_FILE" ]]; then
-    warn "tools/system_diagnostics.py not found — skipping."
-else
-    # Check if already installed
-    EXISTING=$(api GET /api/v1/tools/)
-    if echo "$EXISTING" | grep -qi "system_diagnostics"; then
-        success "System Diagnostics tool already installed."
-    else
-        PAYLOAD=$(python3 -c "
-import json
+# Generate OLLAMA_INSTANCES block from .env remote entries
+INSTANCES_BLOCK="OLLAMA_INSTANCES = {\n    \"local\": \"http://ollama-arc:11434\","
+for name in "${!REMOTE_INSTANCES[@]}"; do
+    INSTANCES_BLOCK+="\n    \"${name}\": \"${REMOTE_INSTANCES[$name]}\","
+done
+INSTANCES_BLOCK+="\n}"
+
+# Inject into tool content
+TOOL_CONTENT=$(python3 -c "
+import re, sys
+
 content = open('${TOOL_FILE}').read()
+new_block = '${INSTANCES_BLOCK}'
+
+# Replace the OLLAMA_INSTANCES dict
+pattern = r'OLLAMA_INSTANCES\s*=\s*\{[^}]*\}'
+replacement = new_block.replace('\\\\n', '\n')
+updated = re.sub(pattern, replacement, content, flags=re.DOTALL)
+print(updated)
+" 2>/dev/null || cat "$TOOL_FILE")
+
+# Check if tool exists
+EXISTING_TOOLS=$(api GET /api/v1/tools/)
+
+if echo "$EXISTING_TOOLS" | grep -qi "system_diagnostics"; then
+    # Update existing tool
+    PAYLOAD=$(python3 -c "
+import json
 print(json.dumps({
     'id': 'system_diagnostics',
     'name': 'System Diagnostics',
-    'content': content,
-    'meta': {
-        'description': 'Query multiple Ollama instances for models, GPU status, health, and control.'
-    }
+    'content': open('${TOOL_FILE}').read(),
+    'meta': {'description': 'Query multiple Ollama instances for models, GPU status, health, and control.'}
 }))
 ")
-        RESULT=$(api POST /api/v1/tools/create "$PAYLOAD")
-        if echo "$RESULT" | grep -q '"id"'; then
-            success "System Diagnostics tool installed."
-        else
-            warn "Could not install tool via API."
-            warn "Paste tools/system_diagnostics.py manually: Admin Panel → Tools → +"
-            info "Response: ${RESULT:0:200}"
-        fi
+    RESULT=$(api POST /api/v1/tools/id/system_diagnostics/update "$PAYLOAD" 2>/dev/null || echo "")
+    if echo "$RESULT" | grep -q '"id"'; then
+        success "System Diagnostics tool updated with ${#REMOTE_INSTANCES[@]} remote instance(s)."
+    else
+        warn "Could not update tool via API — update OLLAMA_INSTANCES manually in Workspace → Tools."
+        info "Add these entries:"
+        for name in "${!REMOTE_INSTANCES[@]}"; do
+            info "  \"${name}\": \"${REMOTE_INSTANCES[$name]}\","
+        done
+    fi
+else
+    # Create new tool
+    PAYLOAD=$(python3 -c "
+import json
+print(json.dumps({
+    'id': 'system_diagnostics',
+    'name': 'System Diagnostics',
+    'content': open('${TOOL_FILE}').read(),
+    'meta': {'description': 'Query multiple Ollama instances for models, GPU status, health, and control.'}
+}))
+")
+    RESULT=$(api POST /api/v1/tools/create "$PAYLOAD")
+    if echo "$RESULT" | grep -q '"id"'; then
+        success "System Diagnostics tool installed."
+    else
+        warn "Could not install tool — paste tools/system_diagnostics.py manually via Workspace → Tools."
     fi
 fi
 
@@ -242,8 +302,7 @@ fi
 # ─── Step 5: Enable tools on models ───────────────────────────────────────────
 header "Enabling Tools on Models"
 
-# Get custom models from /api/v1/models (not /base — that's Ollama native models)
-CUSTOM_MODELS=$(curl -sf http://localhost:${WEBUI_PORT}/api/v1/models \
+CUSTOM_MODELS=$(curl -sf "${WEBUI_URL}/api/v1/models" \
     -H "Authorization: Bearer ${TOKEN}" 2>/dev/null || echo "[]")
 
 MODEL_IDS=$(echo "$CUSTOM_MODELS" | python3 -c "
@@ -264,9 +323,8 @@ if [[ -z "$MODEL_IDS" ]]; then
 else
     while IFS= read -r model_id; do
         [[ -z "$model_id" ]] && continue
-        # GET current model config first to preserve existing settings
         CURRENT_MODEL=$(curl -sf \
-            "http://localhost:${WEBUI_PORT}/api/v1/models/model?id=${model_id}" \
+            "${WEBUI_URL}/api/v1/models/model?id=${model_id}" \
             -H "Authorization: Bearer ${TOKEN}" 2>/dev/null || echo "{}")
         RESULT=$(echo "$CURRENT_MODEL" | python3 -c "
 import sys, json
@@ -281,7 +339,7 @@ m['meta'] = meta
 print(json.dumps({'id': m.get('id'), 'name': m.get('name'),
                   'meta': meta, 'params': m.get('params', {})}))
 " | curl -sf -X POST \
-            "http://localhost:${WEBUI_PORT}/api/v1/models/model/update?id=${model_id}" \
+            "${WEBUI_URL}/api/v1/models/model/update?id=${model_id}" \
             -H "Authorization: Bearer ${TOKEN}" \
             -H "Content-Type: application/json" \
             -d @- 2>/dev/null || echo "")
@@ -299,12 +357,19 @@ header "Post-Install Complete"
 
 echo -e "${GREEN}${BOLD}Configuration applied!${RESET}"
 echo ""
-echo -e "${YELLOW}Verify in Open WebUI at ${WEBUI_URL}:${RESET}"
-echo "  Admin Panel → Settings → Connections   — Ollama + Pipelines green"
+echo -e "  Open WebUI: ${BOLD}${WEBUI_URL}${RESET}"
+echo ""
+echo -e "${YELLOW}Instances registered:${RESET}"
+echo "  local → http://ollama-arc:11434"
+for name in "${!REMOTE_INSTANCES[@]}"; do
+    echo "  ${name} → ${REMOTE_INSTANCES[$name]}"
+done
+echo ""
+echo -e "${YELLOW}Verify in Open WebUI:${RESET}"
+echo "  Admin Panel → Settings → Connections   — all instances green"
 echo "  Admin Panel → Settings → Integrations  — Open Terminal enabled"
 echo "  Admin Panel → Settings → Pipelines     — smart_model_router listed"
-echo "  Admin Panel → Tools                    — System Diagnostics present"
-echo "  New chat → tools icon                  — System Diagnostics toggleable"
+echo "  Workspace → Tools                      — System Diagnostics present"
 echo ""
-echo -e "${YELLOW}Any steps showing [WARN] above need manual completion:${RESET}"
+echo -e "${YELLOW}Any steps showing [WARN] need manual completion:${RESET}"
 echo "  See docs/post-install.md"

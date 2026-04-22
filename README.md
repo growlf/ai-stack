@@ -37,7 +37,7 @@ Built and documented through real-world homelab experience on Intel Arc hardware
 
 ```bash
 # 1. Clone the repo
-git clone https://github.com/growlf/ai-stack
+git clone https://github.com/growlf/ai-stack.git
 cd ai-stack
 
 # 2. Configure
