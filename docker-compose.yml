@@ -1,0 +1,96 @@
+services:
+
+  # ─── Ollama (Intel Arc iGPU) ─────────────────────────────────────────────
+  # Uses ava-agentone/ollama-intel: community-maintained, iGPU-first
+  # Replaces intelanalytics/ipex-llm-inference-cpp-xpu (archived Jan 28, 2026)
+  # Source: https://github.com/Ava-AgentOne/ollama-intel
+  ollama-arc:
+    image: ghcr.io/ava-agentone/ollama-intel:latest
+    container_name: ollama-arc
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+      - OLLAMA_ORIGINS=app://obsidian.md*
+      - OLLAMA_DEBUG=1
+      - DEVICE=Arc
+      - OLLAMA_INTEL_GPU=true
+      - ONEAPI_DEVICE_SELECTOR=level_zero:0
+      - ZES_ENABLE_SYSMAN=1
+      - OLLAMA_KEEP_ALIVE=-1
+    volumes:
+      - ${OLLAMA_DATA:-/home/user/.ollama}:/root/.ollama
+      - ${OLLAMA_SSH_KEY:-/dev/null}:/root/.ollama/id_ed25519:ro
+      - ${OLLAMA_SSH_KEY_PUB:-/dev/null}:/root/.ollama/id_ed25519.pub:ro
+    devices:
+      # GPU card node — may be card0 or card1 depending on boot
+      # check-arc-gpu.sh validates this before stack starts
+      - ${GPU_CARD:-/dev/dri/card1}:${GPU_CARD:-/dev/dri/card1}
+      - ${GPU_RENDER:-/dev/dri/renderD128}:${GPU_RENDER:-/dev/dri/renderD128}
+    ports:
+      - "${OLLAMA_PORT:-11434}:11434"
+    restart: unless-stopped
+    shm_size: '16gb'
+    mem_limit: 32g
+    networks:
+      - ai-net
+
+  # ─── Open WebUI ──────────────────────────────────────────────────────────
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: open-webui
+    restart: always
+    ports:
+      - "${WEBUI_PORT:-3000}:8080"
+    environment:
+      - OLLAMA_BASE_URL=http://ollama-arc:11434
+      - OPEN_TERMINAL_URL=http://open-terminal:8000
+      - OPEN_TERMINAL_API_KEY=${OPEN_TERMINAL_API_KEY:-changeme}
+      - PIPELINES_URLS=http://pipelines:9099
+      - PIPELINES_API_KEY=${PIPELINES_API_KEY:-changeme}
+    volumes:
+      - open-webui:/app/backend/data
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - ai-net
+    depends_on:
+      - ollama-arc
+      - pipelines
+
+  # ─── Open Terminal ───────────────────────────────────────────────────────
+  open-terminal:
+    image: ghcr.io/open-webui/open-terminal:latest
+    container_name: open-terminal
+    restart: unless-stopped
+    ports:
+      - "${TERMINAL_PORT:-8000}:8000"
+    environment:
+      - OPEN_TERMINAL_API_KEY=${OPEN_TERMINAL_API_KEY:-changeme}
+      - TERMINAL_SUDO_ENABLED=true
+      - TERMINAL_USER=${STACK_USER:-user}
+    volumes:
+      - open-terminal-data:/home/user
+    networks:
+      - ai-net
+
+  # ─── Pipelines ───────────────────────────────────────────────────────────
+  pipelines:
+    image: ghcr.io/open-webui/pipelines:main
+    container_name: pipelines
+    restart: always
+    ports:
+      - "${PIPELINES_PORT:-9099}:9099"
+    environment:
+      - PIPELINES_API_KEY=${PIPELINES_API_KEY:-changeme}
+    volumes:
+      - pipelines:/app/pipelines
+    networks:
+      - ai-net
+
+volumes:
+  open-webui:
+    external: true
+  open-terminal-data:
+  pipelines:
+
+networks:
+  ai-net:
+    driver: bridge
