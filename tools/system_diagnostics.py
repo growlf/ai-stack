@@ -11,9 +11,9 @@ import httpx
 import json
 
 # ─── Configure your Ollama instances here ────────────────────────────────────
-# Add or remove instances to match your setup.
-# The "local" instance points to the ollama-arc container on the same Docker network.
-# To add remote machines, uncomment and edit the examples below.
+# The local instance is always present.
+# Add remote machines to match your OLLAMA_REMOTE_* entries in .env.
+# post-install.sh will generate this block automatically if you use that workflow.
 OLLAMA_INSTANCES = {
     "local": "http://ollama-arc:11434",     # Local Intel Arc iGPU (always present)
     # "remote1": "http://10.0.0.X:11434",  # Example: remote machine on your LAN
