@@ -94,7 +94,7 @@ class Tools:
             return json.dumps({"instance": instance, "url": url, "error": str(e)})
 
     async def list_loaded_models(self, instance: str = "local") -> str:
-        """List currently loaded models and VRAM/RAM usage. instance: local | remote1"""
+        """List currently loaded models and VRAM/RAM usage. instance: local | remote1 ..."""
         url, err = self._instance_url(instance)
         if err:
             return json.dumps({"error": err})
@@ -110,7 +110,7 @@ class Tools:
             return json.dumps({"instance": instance, "url": url, "error": str(e)})
 
     async def show_model_info(self, instance: str, model_name: str) -> str:
-        """Get modelfile, parameters, and template for a specific model. instance: local | remote1"""
+        """Get modelfile, parameters, and template for a specific model. instance: local | remote1 ..."""
         url, err = self._instance_url(instance)
         if err:
             return json.dumps({"error": err})
@@ -126,7 +126,7 @@ class Tools:
             return json.dumps({"instance": instance, "model": model_name, "error": str(e)})
 
     async def free_model(self, instance: str, model_name: str) -> str:
-        """Unload a model from VRAM/RAM on a given instance. instance: local | remote1"""
+        """Unload a model from VRAM/RAM on a given instance. instance: local | remote1 ..."""
         url, err = self._instance_url(instance)
         if err:
             return json.dumps({"error": err})

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # ─── post-install.sh ──────────────────────────────────────────────────────────
-# Automates Open WebUI configuration after the stack is running.
+# Automates Open WebUI and Khoj configuration after the stack is running.
 # Reads OLLAMA_REMOTE_* entries from .env as the single source of truth for
 # all Ollama instances — generates system_diagnostics.py, registers connections,
-# and enables tools on models.
+# enables tools on models, and verifies Khoj is healthy.
 # Uses verified API endpoints from Open WebUI v0.9.x source.
 #
 # Verified prefixes from main.py:
@@ -50,6 +50,8 @@ source "${SCRIPT_DIR}/.env"
 
 WEBUI_PORT="${WEBUI_PORT:-3000}"
 WEBUI_URL="http://localhost:${WEBUI_PORT}"
+KHOJ_PORT="${KHOJ_PORT:-42110}"
+KHOJ_URL="http://localhost:${KHOJ_PORT}"
 PIPELINES_API_KEY="${PIPELINES_API_KEY:-changeme}"
 OPEN_TERMINAL_API_KEY="${OPEN_TERMINAL_API_KEY:-changeme}"
 
@@ -94,7 +96,7 @@ if [[ "$DRY_RUN" == "true" ]]; then
 else
     [[ -f "$TOOL_FILE" ]] || error "tools/system_diagnostics.py not found in ${SCRIPT_DIR}/tools/"
 
-    # Build the python assignment statements for remote instances
+    # Build python assignment statements for remote instances
     REMOTE_ASSIGNMENTS=""
     for name in "${!REMOTE_INSTANCES[@]}"; do
         REMOTE_ASSIGNMENTS+="instances['${name}'] = '${REMOTE_INSTANCES[$name]}'"$'\n'
@@ -412,6 +414,65 @@ print(json.dumps({'id': m.get('id'), 'name': m.get('name'),
     fi
 fi
 
+# ─── Step 8: Verify Khoj ──────────────────────────────────────────────────────
+header "Step 8: Khoj"
+
+if [[ "$DRY_RUN" == "true" ]]; then
+    dry "Would wait for Khoj at ${KHOJ_URL}"
+    would "Check health endpoint at ${KHOJ_URL}/api/health"
+    would "Verify Ollama connection via ${KHOJ_URL}/api/config/data/default"
+    would "Print Obsidian plugin setup instructions"
+else
+    info "Waiting for Khoj at ${KHOJ_URL}..."
+    khoj_ready=false
+    for i in {1..15}; do
+        if curl -sf "${KHOJ_URL}/api/health" 2>/dev/null | grep -q "\"status\":\"ok\"" 2>/dev/null || \
+           curl -sf "${KHOJ_URL}/api/health" 2>/dev/null | grep -q "ok" 2>/dev/null; then
+            khoj_ready=true
+            break
+        fi
+        sleep 4
+    done
+
+    if [[ "$khoj_ready" == "true" ]]; then
+        success "Khoj is healthy at ${KHOJ_URL}"
+
+        # Check Ollama connection from Khoj's perspective
+        KHOJ_HEALTH=$(curl -sf "${KHOJ_URL}/api/health" 2>/dev/null || echo "{}")
+        if echo "$KHOJ_HEALTH" | grep -qi "ok\|healthy"; then
+            success "Khoj health check passed."
+        fi
+
+        # Get API key for Obsidian plugin setup
+        KHOJ_API_KEY=$(curl -sf -X POST "${KHOJ_URL}/auth/token" \
+            -H "Content-Type: application/json" \
+            -d "{\"username\":\"${KHOJ_ADMIN_EMAIL:-admin@localhost}\",\"password\":\"${KHOJ_ADMIN_PASSWORD:-changeme}\"}" \
+            2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('token',''))" 2>/dev/null || echo "")
+
+        echo ""
+        echo -e "${GREEN}${BOLD}Khoj is ready!${RESET}"
+        echo ""
+        echo -e "${YELLOW}Obsidian plugin setup:${RESET}"
+        echo "  1. Open Obsidian → Settings → Community Plugins → Browse"
+        echo "  2. Search for 'Khoj' and install it"
+        echo "  3. In Khoj plugin settings set:"
+        echo -e "     Server URL: ${BOLD}${KHOJ_URL}${RESET}"
+        if [[ -n "$KHOJ_API_KEY" ]]; then
+            echo -e "     API Key:    ${BOLD}${KHOJ_API_KEY}${RESET}"
+        else
+            echo "     API Key:    get from ${KHOJ_URL}/settings (login with your Khoj admin credentials)"
+        fi
+        echo "  4. Click 'Force Sync' to index your vault immediately"
+        echo ""
+        echo -e "  Full guide: ${BOLD}docs/khoj-setup.md${RESET}"
+    else
+        warn "Khoj did not become ready within 60s."
+        warn "Check: docker logs khoj"
+        warn "Khoj requires nomic-embed-text to be pulled — ensure models are loaded."
+        warn "Manual setup: see docs/khoj-setup.md"
+    fi
+fi
+
 # ─── Summary ──────────────────────────────────────────────────────────────────
 header "Summary"
 
@@ -429,6 +490,7 @@ else
     echo -e "${GREEN}${BOLD}Configuration applied!${RESET}"
     echo ""
     echo -e "  Open WebUI: ${BOLD}${WEBUI_URL}${RESET}"
+    echo -e "  Khoj:       ${BOLD}${KHOJ_URL}${RESET}"
     echo ""
     echo -e "${YELLOW}Instances registered:${RESET}"
     echo "  local → http://ollama-arc:11434"
@@ -437,8 +499,8 @@ else
     done
     echo ""
     echo -e "${YELLOW}tools/system_diagnostics.py was regenerated from .env${RESET}"
-    echo -e "  Consider committing it: ${BOLD}git add tools/ && git commit -m 'update instances'${RESET}"
+    echo -e "  Consider committing: ${BOLD}git add tools/ && git commit -m 'update instances'${RESET}"
     echo ""
     echo -e "${YELLOW}Any steps showing [WARN] need manual completion:${RESET}"
-    echo "  See docs/post-install.md"
+    echo "  See docs/post-install.md and docs/khoj-setup.md"
 fi

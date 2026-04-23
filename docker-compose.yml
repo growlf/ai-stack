@@ -86,6 +86,9 @@ services:
       - ai-net
 
   # ─── Khoj (AI second brain + Obsidian RAG) ───────────────────────────────
+  # Khoj indexes your Obsidian vault and enables semantic search + RAG over
+  # your notes using local Ollama models. Access via browser or Obsidian plugin.
+  # Obsidian plugin setup: see docs/khoj-setup.md
   khoj-db:
     image: ankane/pgvector:latest
     container_name: khoj-db
@@ -104,7 +107,7 @@ services:
     container_name: khoj
     restart: unless-stopped
     ports:
-      - "42110:42110"
+      - "${KHOJ_PORT:-42110}:42110"
     environment:
       - KHOJ_ADMIN_EMAIL=${KHOJ_ADMIN_EMAIL:-admin@localhost}
       - KHOJ_ADMIN_PASSWORD=${KHOJ_ADMIN_PASSWORD:-changeme}
@@ -114,9 +117,9 @@ services:
       - POSTGRES_DB=khoj
       - POSTGRES_HOST=khoj-db
       - POSTGRES_PORT=5432
-      # Point at your local Ollama instance
+      # Point at local Ollama — uses OpenAI-compatible API
       - OPENAI_BASE_URL=http://ollama-arc:11434/v1/
-      # Use nomic-embed-text for embeddings (already in your model stack)
+      # nomic-embed-text is already in the recommended model stack
       - EMBEDDING_MODEL=nomic-embed-text
     volumes:
       # Mount your Obsidian vault read-only for indexing
@@ -127,7 +130,7 @@ services:
       - khoj-db
       - ollama-arc
 
-# ─── Resources ───────────────────────────────────────────────────────────
+# ─── Resources ───────────────────────────────────────────────────────────────
 volumes:
   open-webui:
     external: true

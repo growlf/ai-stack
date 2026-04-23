@@ -105,12 +105,26 @@ check_memory() {
     fi
 }
 
+check_obsidian_vault() {
+    local vault_path="${OBSIDIAN_VAULT_PATH:-}"
+    if [[ -z "$vault_path" ]]; then
+        warn "OBSIDIAN_VAULT_PATH not set in .env — Khoj will start but vault indexing will be disabled."
+        warn "Set OBSIDIAN_VAULT_PATH in .env and restart to enable vault search."
+    elif [[ ! -d "$vault_path" ]]; then
+        warn "OBSIDIAN_VAULT_PATH=${vault_path} does not exist — Khoj will start but vault won't be mounted."
+        warn "Create the directory or fix the path in .env."
+    else
+        success "Obsidian vault found: ${vault_path}"
+    fi
+}
+
 check_docker
 check_docker_group
 check_intel_gpu
 check_memory
+check_obsidian_vault
 
-# ─── Create docker volume ─────────────────────────────────────────────────────
+# ─── Create docker volumes ────────────────────────────────────────────────────
 header "Docker Volumes"
 
 if ! docker volume inspect open-webui &>/dev/null; then
@@ -138,7 +152,7 @@ success "Installed and enabled ai-stack.service"
 # ─── Install pipelines ────────────────────────────────────────────────────────
 # NOTE: Only pipeline .py files are deployed here (pipelines/ directory).
 # Tools (System Diagnostics etc.) live in Open WebUI's database and must be
-# added manually via Admin Panel → Tools. See docs/post-install.md.
+# added via post-install.sh or manually via Admin Panel → Tools.
 header "Installing Pipelines"
 
 install_pipelines() {
@@ -222,22 +236,18 @@ fi
 header "Installation Complete"
 
 WEBUI_PORT="${WEBUI_PORT:-3000}"
+KHOJ_PORT="${KHOJ_PORT:-42110}"
 
 echo -e "${GREEN}${BOLD}Stack is running!${RESET}"
 echo ""
 echo -e "  Open WebUI:  ${BOLD}http://localhost:${WEBUI_PORT}${RESET}"
 echo -e "  Ollama API:  ${BOLD}http://localhost:${OLLAMA_PORT:-11434}${RESET}"
 echo -e "  Pipelines:   ${BOLD}http://localhost:${PIPELINES_PORT:-9099}${RESET}"
+echo -e "  Khoj:        ${BOLD}http://localhost:${KHOJ_PORT}${RESET}"
 echo ""
-echo -e "${YELLOW}Manual steps required in Open WebUI — see docs/post-install.md:${RESET}"
+echo -e "${YELLOW}Next steps:${RESET}"
 echo ""
-echo "  1. Create admin account at http://localhost:${WEBUI_PORT}"
-echo "  2. Connections → set Ollama URL to http://ollama-arc:11434"
-echo "  3. Connections → add Pipelines at http://pipelines:9099 with your API key"
-echo "  4. Integrations → enable Open Terminal at http://open-terminal:8000"
-echo "  5. Tools → add System Diagnostics (paste from tools/system_diagnostics.py)"
-echo "  6. Models → edit each model → enable System Diagnostics tool"
-echo "  7. Pipelines → verify smart_model_router loaded"
+echo -e "  1. Run ${BOLD}./post-install.sh${RESET} to auto-configure Open WebUI"
+echo -e "  2. Follow ${BOLD}docs/khoj-setup.md${RESET} to connect Obsidian to Khoj"
 echo ""
-echo -e "  Auto-configure: ${BOLD}./post-install.sh${RESET}"
-echo -e "  Full guide:     ${BOLD}docs/post-install.md${RESET}"
+echo -e "  Full guide: ${BOLD}docs/post-install.md${RESET}"
