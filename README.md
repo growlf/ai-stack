@@ -31,6 +31,7 @@ Built and documented through real-world homelab experience on Intel Arc hardware
 
 > **Note:** This stack uses `ghcr.io/ava-agentone/ollama-intel` which replaced the archived `intelanalytics/ipex-llm-inference-cpp-xpu` image (archived January 28, 2026).
 
+> **Note:** This stack has been specifically developed and tested on an Asus Zenbook Duo with an Intel Arc iGPU (Meteor Lake) running Ubuntu 24.04LTS. Other Intel scenarios should work, but have not been specifically tested - yet.  Please feel free to offer some patches or help us to add support for your system & environment.
 ---
 
 ## Quick start
