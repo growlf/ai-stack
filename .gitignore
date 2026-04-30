@@ -1,20 +1,28 @@
-# Environment — never commit this
+# ── secrets & local config ────────────────────────────────────────────────────
 .env
+tmp/
 
-# Python
+# ── generated files (built from .env by start.sh / generate-olla-config.sh) ──
+# Contains LAN node IPs — must not be committed to a public repo
+olla.yaml
+
+# ── runtime / logs ────────────────────────────────────────────────────────────
+logs/
+
+# ── Python
 __pycache__/
 *.pyc
 *.pyo
 
-# Editor
+# ── Editor
 .vscode/
 .idea/
 *.swp
 *.swo
 
-# OS
+# ── OS
 .DS_Store
 Thumbs.db
 
-# Logs
+# ── Logs
 *.log

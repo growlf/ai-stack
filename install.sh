@@ -251,3 +251,4 @@ echo -e "  1. Run ${BOLD}./post-install.sh${RESET} to auto-configure Open WebUI"
 echo -e "  2. Follow ${BOLD}docs/khoj-setup.md${RESET} to connect Obsidian to Khoj"
 echo ""
 echo -e "  Full guide: ${BOLD}docs/post-install.md${RESET}"
+
