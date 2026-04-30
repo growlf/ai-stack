@@ -204,7 +204,7 @@ services:
     container_name: khoj
     restart: unless-stopped
     ports:
-      - "${KHOJ_PORT:-42110}:42110"
+      - "127.0.0.1:${KHOJ_PORT:-42110}:42110"
     environment:
       - KHOJ_ADMIN_EMAIL=${KHOJ_ADMIN_EMAIL:-admin@localhost}
       - KHOJ_ADMIN_PASSWORD=${KHOJ_ADMIN_PASSWORD:-changeme}
@@ -219,9 +219,10 @@ services:
       - OPENAI_BASE_URL=http://olla:40114/olla/ollama/v1/
       # nomic-embed-text is already in the recommended model stack
       - EMBEDDING_MODEL=nomic-embed-text
-      # Disable auth for local-only access; enable with reverse proxy in production
-      - KHOJ_NO_AUTH=true
-    command: --host="0.0.0.0" --port=42110 --anonymous-mode --non-interactive
+      # Set KHOJ_NO_AUTH=true in .env only if you want unauthenticated local access.
+      # Default is false (auth required). Do not enable in production without a reverse proxy.
+      - KHOJ_NO_AUTH=${KHOJ_NO_AUTH:-false}
+    command: --host="0.0.0.0" --port=42110 --non-interactive
     volumes:
       # Mount your Obsidian vault read-only for indexing
       - ${OBSIDIAN_VAULT_PATH:-/home/user/obsidian}:/vault:ro
