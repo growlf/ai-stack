@@ -2,8 +2,8 @@
 # generate-olla-config.sh
 #
 # Generates olla.yaml from OLLAMA_REMOTE_* entries in .env.
-# Called automatically by start.sh before docker compose up.
-# Can also be run standalone to regenerate without restarting the stack.
+# Run this script manually whenever you need to regenerate the config.
+# Update any external startup or compose workflow docs separately if they invoke it.
 #
 # ── Remote node format in .env ────────────────────────────────────────────────
 #
