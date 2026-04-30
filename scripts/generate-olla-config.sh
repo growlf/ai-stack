@@ -82,7 +82,8 @@ cat > "${OUTPUT}" <<EOF
 #   100 — ollama-arc        (local Intel Arc iGPU)
 EOF
 
-for name in "${!REMOTE_URLS[@]}"; do
+mapfile -t sorted_remote_names < <(printf '%s\n' "${!REMOTE_URLS[@]}" | LC_ALL=C sort)
+for name in "${sorted_remote_names[@]}"; do
   echo "#    ${REMOTE_PRIORITIES[$name]} — ${name,,}   (${REMOTE_URLS[$name]})" >> "${OUTPUT}"
 done
 
