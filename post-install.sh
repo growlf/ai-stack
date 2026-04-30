@@ -473,6 +473,66 @@ else
     fi
 fi
 
+# ─── Step 9: Configure Khoj chat models ──────────────────────────────────────
+header "Step 9: Khoj Chat Models"
+
+if [[ "$DRY_RUN" == "true" ]]; then
+    dry "Would configure Khoj chat models via Django shell"
+    would "Create Ollama AI Model API entry pointing to http://ollama-arc:11434/v1/"
+    would "Register: gemma3:12b, qwen2.5:14b, qwen2.5-coder:14b, deepseek-r1:14b"
+else
+    if ! curl -sf "${KHOJ_URL}/api/health" 2>/dev/null | grep -q "email"; then
+        warn "Khoj not reachable at ${KHOJ_URL} — skipping model setup."
+        warn "Run post-install.sh again once Khoj is healthy, or set up manually at ${KHOJ_URL}/server/admin"
+    else
+        docker exec khoj bash -c 'cat > /tmp/setup_models.py << '"'"'PYEOF'"'"'
+import os
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "khoj.app.settings")
+import django
+django.setup()
+from khoj.database.models import ChatModel, AiModelApi
+
+api, created = AiModelApi.objects.get_or_create(
+    name="ollama",
+    defaults={"api_key": "ollama", "api_base_url": "http://ollama-arc:11434/v1/"}
+)
+print("AiModelApi:", "created" if created else "exists", api.name)
+
+for name, friendly, strengths in [
+    ("gemma3:12b",        "Gemma 3 12B",        "Long context, logs, summaries"),
+    ("qwen2.5:14b",       "Qwen 2.5 14B",       "Tool calling, diagnostics"),
+    ("qwen2.5-coder:14b", "Qwen 2.5 Coder 14B", "Code, configs, scripting"),
+    ("deepseek-r1:14b",   "DeepSeek R1 14B",    "Complex reasoning"),
+]:
+    obj, c = ChatModel.objects.get_or_create(
+        name=name,
+        defaults={
+            "friendly_name": friendly,
+            "model_type": ChatModel.ModelType.OPENAI,
+            "ai_model_api": api,
+            "strengths": strengths,
+            "max_prompt_size": 8192,
+        }
+    )
+    print("ChatModel:", "created" if c else "exists", obj.name)
+
+print("Done!")
+PYEOF'
+
+        RESULT=$(docker exec khoj python3 /tmp/setup_models.py 2>&1)
+        docker exec khoj rm -f /tmp/setup_models.py
+
+        if echo "$RESULT" | grep -q "Done!"; then
+            echo "$RESULT" | while IFS= read -r line; do info "  $line"; done
+            success "Khoj chat models configured."
+        else
+            warn "Khoj model setup may have failed:"
+            echo "$RESULT"
+            warn "Set up manually at ${KHOJ_URL}/server/admin"
+        fi
+    fi
+fi
+    
 # ─── Summary ──────────────────────────────────────────────────────────────────
 header "Summary"
 

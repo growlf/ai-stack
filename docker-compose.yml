@@ -121,6 +121,9 @@ services:
       - OPENAI_BASE_URL=http://ollama-arc:11434/v1/
       # nomic-embed-text is already in the recommended model stack
       - EMBEDDING_MODEL=nomic-embed-text
+      # Disable auth for local-only access and ease of use; enable in production with reverse proxy auth
+      - KHOJ_NO_AUTH=true
+    command: --host="0.0.0.0" --port=42110 --anonymous-mode --non-interactive
     volumes:
       # Mount your Obsidian vault read-only for indexing
       - ${OBSIDIAN_VAULT_PATH:-/home/user/obsidian}:/vault:ro
@@ -129,6 +132,28 @@ services:
     depends_on:
       - khoj-db
       - ollama-arc
+
+# ─── Khoj Sync (CouchDB → Khoj live indexing) ────────────────────────────
+  # Watches CouchDB _changes feed and pushes updated notes to Khoj in real-time.
+  # Handles LiveSync's chunked storage format automatically.
+  # khoj-sync:
+  #   build:
+  #     context: ./khoj-sync
+  #   container_name: khoj-sync
+  #   restart: unless-stopped
+  #   environment:
+  #     - COUCHDB_URL=${COUCHDB_URL}
+  #     - COUCHDB_DB=${COUCHDB_DB:-yeti-journal}
+  #     - COUCHDB_USER=${COUCHDB_USER}
+  #     - COUCHDB_PASSWORD=${COUCHDB_PASSWORD}
+  #     - KHOJ_URL=http://khoj:42110
+  #     - LOG_LEVEL=${KHOJ_SYNC_LOG_LEVEL:-INFO}
+  #     # Set to true after first run to skip full re-sync on restart
+  #     - KHOJ_SYNC_SKIP_INITIAL=${KHOJ_SYNC_SKIP_INITIAL:-false}
+  #   networks:
+  #     - ai-net
+  #   depends_on:
+  #     - khoj
 
 # ─── Resources ───────────────────────────────────────────────────────────────
 volumes:
