@@ -51,18 +51,20 @@ OLLA_REQUEST_LOGGING="${OLLA_REQUEST_LOGGING:-true}"
 declare -A REMOTE_URLS
 declare -A REMOTE_PRIORITIES
 
-while IFS='=' read -r key val; do
-  # Match OLLAMA_REMOTE_<NAME> but NOT OLLAMA_REMOTE_<NAME>_PRIORITY
-  [[ "$key" =~ ^OLLAMA_REMOTE_([A-Za-z0-9_]+)$ ]] || continue
-  name="${BASH_REMATCH[1]}"
-  # Strip inline comments and whitespace
-  val="${val%%#*}"; val="${val#"${val%%[![:space:]]*}"}"; val="${val%"${val##*[![:space:]]}"}"
-  [[ -n "$val" ]] || continue
-  REMOTE_URLS["$name"]="$val"
-  # Look up optional priority companion var
-  priority_var="OLLAMA_REMOTE_${name}_PRIORITY"
-  REMOTE_PRIORITIES["$name"]="${!priority_var:-70}"
-done < "${SCRIPT_DIR}/../.env"
+if [[ -f "${SCRIPT_DIR}/../.env" ]]; then
+  while IFS='=' read -r key val; do
+    # Match OLLAMA_REMOTE_<NAME> but NOT OLLAMA_REMOTE_<NAME>_PRIORITY
+    [[ "$key" =~ ^OLLAMA_REMOTE_([A-Za-z0-9_]+)$ ]] || continue
+    name="${BASH_REMATCH[1]}"
+    # Strip inline comments and whitespace
+    val="${val%%#*}"; val="${val#"${val%%[![:space:]]*}"}"; val="${val%"${val##*[![:space:]]}"}"
+    [[ -n "$val" ]] || continue
+    REMOTE_URLS["$name"]="$val"
+    # Look up optional priority companion var
+    priority_var="OLLAMA_REMOTE_${name}_PRIORITY"
+    REMOTE_PRIORITIES["$name"]="${!priority_var:-70}"
+  done < "${SCRIPT_DIR}/../.env"
+fi
 
 echo "→ Generating olla.yaml..."
 if [[ ${#REMOTE_URLS[@]} -eq 0 ]]; then
