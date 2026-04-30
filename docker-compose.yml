@@ -139,9 +139,9 @@ services:
       - PIPELINES_API_KEY=${PIPELINES_API_KEY:-changeme}
       # UI settings
       - WEBUI_NAME=${WEBUI_NAME:-Yeti's AI Stack}
-      - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY:-changeme}
+      - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY:?Set WEBUI_SECRET_KEY to a strong random value}
       - DEFAULT_USER_ROLE=user
-      - ENABLE_SIGNUP=true
+      - ENABLE_SIGNUP=${ENABLE_SIGNUP:-false}
     volumes:
       - open-webui:/app/backend/data
       - /var/run/docker.sock:/var/run/docker.sock
