@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate configuration
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Docker Compose
+        run: |
+          docker compose version
+
+      - name: Validate docker-compose.yml syntax
+        run: docker compose config --quiet
+
+      - name: Lint shell scripts
+        uses: ludeeus/action-shellcheck@2.0.0
+        with:
+          scandir: "."
+          severity: warning
+
+      - name: Check .env.example exists and has no real secrets
+        run: |
+          if [ ! -f .env.example ]; then
+            echo "ERROR: .env.example is missing"
+            exit 1
+          fi
+          # Warn if any line looks like a real credential (not a placeholder)
+          if grep -E '(password|secret|key)\s*=\s*[^$"'"'"'<{][^c][^h][^a][^n]' .env.example \
+              | grep -vi 'changeme' | grep -vi 'example' | grep -vi 'your-' | grep -qi '=\S'; then
+            echo "WARNING: .env.example may contain real credentials — please review"
+          fi
+
+      - name: Check required community files
+        run: |
+          for f in LICENSE README.md CONTRIBUTING.md SECURITY.md CODE_OF_CONDUCT.md; do
+            if [ ! -f "$f" ]; then
+              echo "ERROR: $f is missing"
+              exit 1
+            fi
+          done
+          echo "All required community files present."

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://github.com/growlf/ai-stack/tree/main/docs
+    about: Read the project docs before opening an issue
+  - name: Discussions
+    url: https://github.com/growlf/ai-stack/discussions
+    about: Ask questions or share ideas in Discussions
