@@ -463,12 +463,14 @@ print(json.dumps({'id': m.get('id'), 'name': m.get('name'),
         success "Enabled System Diagnostics on: ${model_id}"
       else
         # Model has no custom entry yet (e.g. LiteLLM proxy models) — create one
-        RESULT=$(python3 -c "
+        RESULT=$(MODEL_ID="$model_id" python3 -c "
 import json
+import os
+model_id = os.environ['MODEL_ID']
 print(json.dumps({
-  'id': '${model_id}',
-  'base_model_id': '${model_id}',
-  'name': '${model_id}',
+  'id': model_id,
+  'base_model_id': model_id,
+  'name': model_id,
   'meta': {'toolIds': ['system_diagnostics']},
   'params': {}
 }))
