@@ -462,7 +462,26 @@ print(json.dumps({'id': m.get('id'), 'name': m.get('name'),
       if echo "$RESULT" | grep -q '"id"'; then
         success "Enabled System Diagnostics on: ${model_id}"
       else
-        warn "Could not update: ${model_id}"
+        # Model has no custom entry yet (e.g. LiteLLM proxy models) — create one
+        RESULT=$(python3 -c "
+import json
+print(json.dumps({
+  'id': '${model_id}',
+  'base_model_id': '${model_id}',
+  'name': '${model_id}',
+  'meta': {'toolIds': ['system_diagnostics']},
+  'params': {}
+}))
+" | curl -sf -X POST \
+          "${WEBUI_URL}/api/v1/models/create" \
+          -H "Authorization: Bearer ${TOKEN}" \
+          -H "Content-Type: application/json" \
+          -d @- 2>/dev/null || echo "")
+        if echo "$RESULT" | grep -q '"id"'; then
+          success "Enabled System Diagnostics on: ${model_id}"
+        else
+          warn "Could not update: ${model_id}"
+        fi
       fi
     done <<< "$MODEL_IDS"
   fi
