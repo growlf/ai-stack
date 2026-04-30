@@ -2,7 +2,7 @@
 Tests for tools/system_diagnostics.py
 
 Covers:
-- Tools initialisation
+- Tools initialization
 - _instance_url: valid / invalid instance
 - check_health: reachable, unreachable (network error), non-200 status
 - check_all_instances: all reachable, mixed, all unreachable
@@ -46,7 +46,7 @@ def tools():
     return t
 
 
-# ─── Initialisation ──────────────────────────────────────────────────────────
+# ─── Initialization ──────────────────────────────────────────────────────────
 
 class TestInit:
     def test_instances_loaded_from_module_constant(self):
