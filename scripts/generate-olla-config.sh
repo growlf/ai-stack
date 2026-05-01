@@ -34,12 +34,24 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OUTPUT="${SCRIPT_DIR}/../proxy/olla.yaml"
 
-# ── Load .env ─────────────────────────────────────────────────────────────────
-if [[ -f "${SCRIPT_DIR}/../.env" ]]; then
-  set -a
-  # shellcheck disable=SC1091
-  source "${SCRIPT_DIR}/../.env"
-  set +a
+# ── Load .env (parse without sourcing to avoid bash syntax errors from special chars) ──
+ENV_FILE="${SCRIPT_DIR}/../.env"
+if [[ -f "$ENV_FILE" ]]; then
+  while IFS='=' read -r key val || [[ -n "$key" ]]; do
+    # Skip comments and empty lines
+    [[ "$key" =~ ^[[:space:]]*# ]] && continue
+    [[ -z "$key" ]] && continue
+    # Strip inline comments and whitespace from value
+    val="${val%%#*}"
+    val="$(echo "$val" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+    # Remove surrounding quotes if present
+    val="${val#\"}"; val="${val%\"}"
+    val="${val#\'}"; val="${val%\'}"
+    # Use eval to handle special chars safely (only for specific vars we need)
+    case "$key" in
+      OLLA_*|OLLAMA_REMOTE_*) eval "export $key=\$val" ;;
+    esac
+  done < "$ENV_FILE"
 fi
 
 OLLA_ENGINE="${OLLA_ENGINE:-sherpa}"
@@ -59,10 +71,16 @@ if [[ -f "${SCRIPT_DIR}/../.env" ]]; then
     # Strip inline comments and whitespace
     val="${val%%#*}"; val="${val#"${val%%[![:space:]]*}"}"; val="${val%"${val##*[![:space:]]}"}"
     [[ -n "$val" ]] || continue
-    REMOTE_URLS["$name"]="$val"
-    # Look up optional priority companion var
-    priority_var="OLLAMA_REMOTE_${name}_PRIORITY"
-    REMOTE_PRIORITIES["$name"]="${!priority_var:-70}"
+    # Check for inline priority suffix: url:port:N (e.g., http://10.10.0.201:11434:100)
+    if [[ "$val" =~ ^(.*):([0-9]+)$ ]]; then
+      REMOTE_URLS["$name"]="${BASH_REMATCH[1]}"
+      REMOTE_PRIORITIES["$name"]="${BASH_REMATCH[2]}"
+    else
+      REMOTE_URLS["$name"]="$val"
+      # Look up optional priority companion var
+      priority_var="OLLAMA_REMOTE_${name}_PRIORITY"
+      REMOTE_PRIORITIES["$name"]="${!priority_var:-70}"
+    fi
   done < "${SCRIPT_DIR}/../.env"
 fi
 
