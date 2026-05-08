@@ -567,6 +567,7 @@ print("AiModelApi:", "created" if created else "exists", api.name)
 
 for name, friendly, strengths in [
     ("gemma4:27b",        "Gemma 4 27B",        "Heavy lifting, large context"),
+    ("mistral-small3.2:24b", "Mistral Small 3.2 24B", "Strong function calling, 128K context"),
     ("qwen3.5:14b",       "Qwen 3.5 14B",       "Improved reasoning, tool calling"),
     ("gemma3:12b",        "Gemma 3 12B",        "Long context, logs, summaries"),
     ("qwen2.5:14b",       "Qwen 2.5 14B",       "Tool calling, diagnostics"),

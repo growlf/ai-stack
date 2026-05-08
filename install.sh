@@ -212,7 +212,7 @@ fi
 # ─── Pull models ──────────────────────────────────────────────────────────────
 header "Pulling Models"
 
-MODELS_TO_PULL="${MODELS_TO_PULL:-deepseek-r1:14b gemma4:27b qwen3.5:14b qwen2.5-coder:14b gemma3:12b qwen2.5:14b nomic-embed-text:latest}"
+MODELS_TO_PULL="${MODELS_TO_PULL:-deepseek-r1:14b gemma4:27b mistral-small3.2:24b qwen3.5:14b qwen2.5-coder:14b gemma3:12b qwen2.5:14b nomic-embed-text:latest}"
 
 info "This will pull: ${MODELS_TO_PULL}"
 info "This may take a while depending on your connection speed."
