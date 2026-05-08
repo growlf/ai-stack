@@ -8,6 +8,7 @@ Recommendations for Intel Arc iGPU with your available RAM.
 
 | Model | Size | Use case |
 |-------|------|----------|
+| `gemma4:27b` | ~16 GB | Heavy lifting, large context, complex analysis |
 | `qwen3.5:14b` | ~8.5 GB | Latest Qwen, improved reasoning + tool calling (recommended default) |
 | `qwen2.5:14b` | ~8.3 GB | Tool calling, health checks, diagnostics, general sysadmin |
 | `qwen2.5-coder:14b` | ~8.3 GB | Scripts, configs, code, debugging |
@@ -18,6 +19,8 @@ Recommendations for Intel Arc iGPU with your available RAM.
 ---
 
 ## Why these models
+
+**gemma4:27b** — Google's latest, strong at long-context reasoning and complex analysis. Requires ~16 GB GPU memory — best on systems with 48 GB+ RAM. Load on demand rather than keeping resident.
 
 **qwen3.5:14b** — The latest Qwen generation with improved reasoning and tool calling. Recommended as the default model if your RAM allows alongside the rest of the stack.
 
@@ -50,6 +53,7 @@ Running two 14b models simultaneously will likely cause one to be paged out. Use
 ```bash
 # Pull the full recommended stack
 docker exec ollama-arc ollama pull deepseek-r1:14b
+docker exec ollama-arc ollama pull gemma4:27b
 docker exec ollama-arc ollama pull qwen3.5:14b
 docker exec ollama-arc ollama pull qwen2.5-coder:14b
 docker exec ollama-arc ollama pull gemma3:12b

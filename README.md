@@ -84,6 +84,7 @@ ai-stack/
 
 | Model | Use case |
 |-------|----------|
+| `gemma4:27b` | Heavy lifting, large context, complex analysis |
 | `qwen3.5:14b` | Improved reasoning, tool calling (recommended default) |
 | `qwen2.5:14b` | Tool calling, diagnostics, sysadmin |
 | `qwen2.5-coder:14b` | Scripts, configs, code |
