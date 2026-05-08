@@ -1,56 +1,62 @@
 # litellm_config.yaml — LiteLLM proxy configuration
 # Docs: https://docs.litellm.ai/docs/proxy/configs
-#
-# This file registers all cloud models you want available.
-# API keys are read from environment variables (set in .env).
-#
-# After startup, all models here appear in Open WebUI's model picker
-# alongside your local Ollama models.
 
 model_list:
-
-  # ── Anthropic / Claude ────────────────────────────────────────────────────
-  - model_name: claude-sonnet-4-6          # friendly name shown in UI
+  # ── Anthropic / Claude ──────────────────────────────────────────────────
+  - model_name: claude-sonnet-4-6
     litellm_params:
       model: anthropic/claude-sonnet-4-6
       api_key: os.environ/ANTHROPIC_API_KEY
+    model_info:
+      supports_function_calling: true
 
   - model_name: claude-opus-4-6
     litellm_params:
       model: anthropic/claude-opus-4-6
       api_key: os.environ/ANTHROPIC_API_KEY
+    model_info:
+      supports_function_calling: true
 
   - model_name: claude-haiku-4-5
     litellm_params:
       model: anthropic/claude-haiku-4-5-20251001
       api_key: os.environ/ANTHROPIC_API_KEY
+    model_info:
+      supports_function_calling: true
 
-  # ── Google / Gemini ──────────────────────────────────────────────────────
+  # ── Google / Gemini ─────────────────────────────────────────────────────
   - model_name: gemini-2.5-pro
     litellm_params:
       model: gemini/gemini-2.5-pro-preview-03-25
       api_key: os.environ/GEMINI_API_KEY
+    model_info:
+      supports_function_calling: true
 
   - model_name: gemini-2.5-flash
     litellm_params:
       model: gemini/gemini-2.5-flash-preview-04-17
       api_key: os.environ/GEMINI_API_KEY
+    model_info:
+      supports_function_calling: true
 
   - model_name: gemini-2.0-flash
     litellm_params:
       model: gemini/gemini-2.0-flash
       api_key: os.environ/GEMINI_API_KEY
+    model_info:
+      supports_function_calling: true
 
-  # ── OpenAI (optional — leave OPENAI_API_KEY blank to skip) ───────────────
+  # ── OpenAI (optional) ───────────────────────────────────────────────────
   # - model_name: gpt-4o
   #   litellm_params:
   #     model: openai/gpt-4o
   #     api_key: os.environ/OPENAI_API_KEY
+  #   model_info:
+  #     supports_function_calling: true
 
 litellm_settings:
-  # Drop requests to unavailable models gracefully
   drop_params: true
-  # Return more useful error messages
+  modify_params: true        # fixes Anthropic tool-history errors
   detailed_debug: false
 
 general_settings:

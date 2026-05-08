@@ -35,6 +35,16 @@ if [[ ! -f "${SCRIPT_DIR}/.env" ]]; then
     error ".env not found. Run: cp .env.example .env && nano .env"
 fi
 
+# Resolve VaultWarden placeholders before sourcing
+if grep -q '<vaultwarden:' "${SCRIPT_DIR}/.env" 2>/dev/null; then
+    info "Resolving VaultWarden placeholders in .env..."
+    if [[ -f "${SCRIPT_DIR}/scripts/resolve-vaultwarden.sh" ]]; then
+        bash "${SCRIPT_DIR}/scripts/resolve-vaultwarden.sh" --in-place
+    else
+        warn "resolve-vaultwarden.sh not found, sourcing .env as-is"
+    fi
+fi
+
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/.env"
 

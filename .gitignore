@@ -1,5 +1,7 @@
 # ── secrets & local config ────────────────────────────────────────────────────
 .env
+.env.backup*
+.env.*.backup*
 tmp/
 
 # ── generated files (built from .env by start.sh / generate-olla-config.sh) ──
