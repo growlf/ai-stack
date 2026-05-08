@@ -180,8 +180,10 @@ docker logs ollama-arc --tail=30 -f
 
 ```bash
 docker exec ollama-arc ollama pull deepseek-r1:14b
+docker exec ollama-arc ollama pull qwen3.5:14b
 docker exec ollama-arc ollama pull qwen2.5-coder:14b
 docker exec ollama-arc ollama pull gemma3:12b
+docker exec ollama-arc ollama pull qwen2.5:14b
 docker exec ollama-arc ollama pull nomic-embed-text:latest
 ```
 

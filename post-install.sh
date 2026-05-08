@@ -566,6 +566,7 @@ api, created = AiModelApi.objects.get_or_create(
 print("AiModelApi:", "created" if created else "exists", api.name)
 
 for name, friendly, strengths in [
+    ("qwen3.5:14b",       "Qwen 3.5 14B",       "Improved reasoning, tool calling"),
     ("gemma3:12b",        "Gemma 3 12B",        "Long context, logs, summaries"),
     ("qwen2.5:14b",       "Qwen 2.5 14B",       "Tool calling, diagnostics"),
     ("qwen2.5-coder:14b", "Qwen 2.5 Coder 14B", "Code, configs, scripting"),
