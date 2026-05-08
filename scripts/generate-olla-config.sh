@@ -2,52 +2,45 @@
 # generate-olla-config.sh
 #
 # Generates olla.yaml from OLLAMA_REMOTE_* entries in .env.
-# Run this script manually whenever you need to regenerate the config.
-# Update any external startup or compose workflow docs separately if they invoke it.
+# Run this script manually: bash scripts/generate-olla-config.sh
+# It is also called automatically by start.sh on each stack start.
 #
-# ── Remote node format in .env ────────────────────────────────────────────────
+# Remote node format in .env:
+#   OLLAMA_REMOTE_<NAME>=http://host:port[:priority]
 #
-#   OLLAMA_REMOTE_<NAME>=<url>              # required — one line per node
-#   OLLAMA_REMOTE_<NAME>_PRIORITY=<n>       # optional — defaults to 70
+#   Priority is optional (defaults to 70).
+#   NAME can be alphanumeric + underscores.
 #
-#   Examples:
-#     OLLAMA_REMOTE_WORKSTATION=http://192.168.1.50:11434
-#     OLLAMA_REMOTE_WORKSTATION_PRIORITY=75
+# Examples:
+#   OLLAMA_REMOTE_WORKSTATION=http://192.168.1.50:11434:75
+#   OLLAMA_REMOTE_NAS=http://192.168.1.51:11434
 #
-#     OLLAMA_REMOTE_NAS=http://192.168.1.51:11434
-#     # no priority set — will use default of 70
-#
-#   NAME can be anything alphanumeric + underscores. It becomes the node's
-#   display name in Olla (lowercased, underscores preserved).
-#
-# ── Fixed nodes (always present, not configurable via .env) ──────────────────
-#   priority 100 — ollama-arc   (local Intel Arc iGPU in Docker)
+# Fixed nodes (always present, not configurable):
+#   priority 100 — ollama-arc   (local Intel Arc iGPU)
 #   priority  50 — litellm      (cloud gateway: Claude, Gemini)
 #
-# ── Advanced tuning (optional .env vars) ─────────────────────────────────────
-#   OLLA_ENGINE=sherpa              # or "olla" for circuit breakers + pooling
-#   OLLA_LOAD_BALANCER=least-connections   # or "round-robin" / "priority"
-#   OLLA_REQUEST_LOGGING=true
+# Advanced tuning (optional .env vars):
+#   OLLA_ENGINE           — "sherpa" (default) or "olla"
+#   OLLA_LOAD_BALANCER    — "least-connections" (default), "round-robin", "priority"
+#   OLLA_REQUEST_LOGGING  — true (default) or false
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OUTPUT="${SCRIPT_DIR}/../proxy/olla.yaml"
-
-# ── Load .env (parse without sourcing to avoid bash syntax errors from special chars) ──
 ENV_FILE="${SCRIPT_DIR}/../.env"
+
+# ── Load .env ──────────────────────────────────────────────────────────────────
+# Parse only OLLA_* and OLLAMA_REMOTE_* vars to avoid sourcing the entire file
+# (which could fail on special characters in API keys).
 if [[ -f "$ENV_FILE" ]]; then
   while IFS='=' read -r key val || [[ -n "$key" ]]; do
-    # Skip comments and empty lines
     [[ "$key" =~ ^[[:space:]]*# ]] && continue
     [[ -z "$key" ]] && continue
-    # Strip inline comments and whitespace from value
     val="${val%%#*}"
     val="$(echo "$val" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
-    # Remove surrounding quotes if present
     val="${val#\"}"; val="${val%\"}"
     val="${val#\'}"; val="${val%\'}"
-    # Use eval to handle special chars safely (only for specific vars we need)
     case "$key" in
       OLLA_*|OLLAMA_REMOTE_*) eval "export $key=\$val" ;;
     esac
@@ -58,30 +51,26 @@ OLLA_ENGINE="${OLLA_ENGINE:-sherpa}"
 OLLA_LOAD_BALANCER="${OLLA_LOAD_BALANCER:-least-connections}"
 OLLA_REQUEST_LOGGING="${OLLA_REQUEST_LOGGING:-true}"
 
-# ── Collect OLLAMA_REMOTE_* entries ──────────────────────────────────────────
-# Reads NAME → URL pairs; looks up optional NAME_PRIORITY companion var.
+# ── Collect OLLAMA_REMOTE_* entries ────────────────────────────────────────────
 declare -A REMOTE_URLS
 declare -A REMOTE_PRIORITIES
 
-if [[ -f "${SCRIPT_DIR}/../.env" ]]; then
+if [[ -f "$ENV_FILE" ]]; then
   while IFS='=' read -r key val; do
-    # Match OLLAMA_REMOTE_<NAME> but NOT OLLAMA_REMOTE_<NAME>_PRIORITY
     [[ "$key" =~ ^OLLAMA_REMOTE_([A-Za-z0-9_]+)$ ]] || continue
     name="${BASH_REMATCH[1]}"
-    # Strip inline comments and whitespace
     val="${val%%#*}"; val="${val#"${val%%[![:space:]]*}"}"; val="${val%"${val##*[![:space:]]}"}"
     [[ -n "$val" ]] || continue
-    # Check for inline priority suffix: url:port:N (e.g., http://10.10.0.201:11434:100)
+    # Check for inline priority suffix: url:port:N
     if [[ "$val" =~ ^(.*):([0-9]+)$ ]]; then
       REMOTE_URLS["$name"]="${BASH_REMATCH[1]}"
       REMOTE_PRIORITIES["$name"]="${BASH_REMATCH[2]}"
     else
       REMOTE_URLS["$name"]="$val"
-      # Look up optional priority companion var
       priority_var="OLLAMA_REMOTE_${name}_PRIORITY"
       REMOTE_PRIORITIES["$name"]="${!priority_var:-70}"
     fi
-  done < "${SCRIPT_DIR}/../.env"
+  done < "$ENV_FILE"
 fi
 
 echo "→ Generating olla.yaml..."
@@ -89,26 +78,11 @@ if [[ ${#REMOTE_URLS[@]} -eq 0 ]]; then
   echo "   (no OLLAMA_REMOTE_* entries found — only local Arc node + LiteLLM)"
 fi
 
-# ── Write olla.yaml ───────────────────────────────────────────────────────────
-cat > "${OUTPUT}" <<EOF
+# ── Write olla.yaml ────────────────────────────────────────────────────────────
+cat > "$OUTPUT" <<EOF
 # olla.yaml — AUTO-GENERATED by generate-olla-config.sh
 # Do not edit directly. Edit .env and re-run generate-olla-config.sh (or start.sh).
 # This file is in .gitignore — LAN node addresses stay off the repo.
-#
-# Remote nodes are sourced from OLLAMA_REMOTE_* entries in .env.
-# See generate-olla-config.sh header for the full format reference.
-#
-# Routing priority:
-#   100 — ollama-arc        (local Intel Arc iGPU)
-EOF
-
-mapfile -t sorted_remote_names < <(printf '%s\n' "${!REMOTE_URLS[@]}" | LC_ALL=C sort)
-for name in "${sorted_remote_names[@]}"; do
-  echo "#    ${REMOTE_PRIORITIES[$name]} — ${name,,}   (${REMOTE_URLS[$name]})" >> "${OUTPUT}"
-done
-
-cat >> "${OUTPUT}" <<EOF
-#    50 — litellm-cloud     (Claude, Gemini via LiteLLM)
 
 server:
   host: "0.0.0.0"
@@ -127,26 +101,27 @@ discovery:
   static:
     endpoints:
 
-      # ── Primary: local Intel Arc node ────────────────────────────────
+      # ── Local Intel Arc iGPU node (priority 100) ─────────────────
       - url: "http://ollama-arc:11434"
-        name: "ollama-arc-local"
+        name: "ollama-arc"
         type: "ollama"
         priority: 100
         check_interval: 15s
         check_timeout: 5s
 EOF
 
-# ── Dynamic remote nodes ──────────────────────────────────────────────────────
+# ── Remote LAN nodes ───────────────────────────────────────────────────────────
 if [[ ${#REMOTE_URLS[@]} -gt 0 ]]; then
-  echo "" >> "${OUTPUT}"
-  echo "      # ── Remote LAN nodes (from OLLAMA_REMOTE_* in .env) ────────────" >> "${OUTPUT}"
+  echo "" >> "$OUTPUT"
+  echo "      # ── Remote LAN nodes (from OLLAMA_REMOTE_* in .env) ────────────" >> "$OUTPUT"
 
-  for name in "${!REMOTE_URLS[@]}"; do
+  mapfile -t sorted_names < <(printf '%s\n' "${!REMOTE_URLS[@]}" | LC_ALL=C sort)
+  for name in "${sorted_names[@]}"; do
     url="${REMOTE_URLS[$name]}"
     priority="${REMOTE_PRIORITIES[$name]}"
-    display="${name,,}"   # lowercase for YAML readability
+    display="${name,,}"
 
-    cat >> "${OUTPUT}" <<EOF
+    cat >> "$OUTPUT" <<EOF
 
       - url: "${url}"
         name: "${display}"
@@ -159,10 +134,10 @@ EOF
   done
 fi
 
-# ── Cloud gateway ─────────────────────────────────────────────────────────────
-cat >> "${OUTPUT}" <<EOF
+# ── Cloud gateway via LiteLLM ──────────────────────────────────────────────────
+cat >> "$OUTPUT" <<EOF
 
-      # ── Cloud gateway via LiteLLM (Claude, Gemini) ───────────────────
+      # ── Cloud gateway via LiteLLM (Claude, Gemini) ───────────────
       - url: "http://litellm:4000"
         name: "litellm-cloud"
         type: "litellm"

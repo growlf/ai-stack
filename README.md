@@ -84,7 +84,10 @@ ai-stack/
 
 | Model | Use case |
 |-------|----------|
-| `qwen2.5:14b` | Tool calling, diagnostics, sysadmin (default) |
+| `gemma4:27b` | Heavy lifting, large context, complex analysis |
+| `mistral-small3.2:24b` | Strong function calling, 128K context |
+| `qwen3.5:14b` | Improved reasoning, tool calling (recommended default) |
+| `qwen2.5:14b` | Tool calling, diagnostics, sysadmin |
 | `qwen2.5-coder:14b` | Scripts, configs, code |
 | `deepseek-r1:14b` | Complex reasoning, root cause analysis |
 | `gemma3:12b` | Log analysis, summaries, documentation |

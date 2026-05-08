@@ -9,7 +9,8 @@ ExecStartPre=/usr/bin/bash ${INSTALL_DIR}/scripts/check-arc-gpu.sh
 Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory=${INSTALL_DIR}
-ExecStart=/usr/bin/docker compose up -d
+# Use start.sh to resolve VaultWarden placeholders before starting
+ExecStart=/usr/bin/bash ${INSTALL_DIR}/start.sh -d
 ExecStop=/usr/bin/docker compose down
 User=${STACK_USER}
 Group=docker

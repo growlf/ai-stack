@@ -15,9 +15,7 @@ import json
 # Add remote machines to match your OLLAMA_REMOTE_* entries in .env.
 # post-install.sh will generate this block automatically if you use that workflow.
 OLLAMA_INSTANCES = {
-    "local": "http://ollama-arc:11434",     # Local Intel Arc iGPU (always present)
-    # "remote1": "http://10.0.0.X:11434",  # Example: remote machine on your LAN
-    # "remote2": "http://10.0.0.Y:11434",  # Add as many as you need
+    "local": "http://ollama-arc:11434",
 }
 
 

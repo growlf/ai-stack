@@ -61,7 +61,7 @@ Go to **Admin Panel → Models** → edit each model → under **Tools** check:
 - System Diagnostics
 - File Scout (if installed)
 
-Do this for: `deepseek-r1:14b`, `qwen2.5-coder:14b`, `gemma3:12b`, `qwen2.5:14b`
+Do this for: `deepseek-r1:14b`, `gemma4:27b`, `mistral-small3.2:24b`, `qwen3.5:14b`, `qwen2.5-coder:14b`, `gemma3:12b`, `qwen2.5:14b`
 
 ---
 

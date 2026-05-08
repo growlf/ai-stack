@@ -35,6 +35,16 @@ if [[ ! -f "${SCRIPT_DIR}/.env" ]]; then
     error ".env not found. Run: cp .env.example .env && nano .env"
 fi
 
+# Resolve VaultWarden placeholders before sourcing
+if grep -q '<vaultwarden:' "${SCRIPT_DIR}/.env" 2>/dev/null; then
+    info "Resolving VaultWarden placeholders in .env..."
+    if [[ -f "${SCRIPT_DIR}/scripts/resolve-vaultwarden.sh" ]]; then
+        bash "${SCRIPT_DIR}/scripts/resolve-vaultwarden.sh" --in-place
+    else
+        warn "resolve-vaultwarden.sh not found, sourcing .env as-is"
+    fi
+fi
+
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/.env"
 
@@ -202,7 +212,7 @@ fi
 # ─── Pull models ──────────────────────────────────────────────────────────────
 header "Pulling Models"
 
-MODELS_TO_PULL="${MODELS_TO_PULL:-deepseek-r1:14b qwen2.5-coder:14b gemma3:12b qwen2.5:14b nomic-embed-text:latest}"
+MODELS_TO_PULL="${MODELS_TO_PULL:-deepseek-r1:14b gemma4:27b mistral-small3.2:24b qwen3.5:14b qwen2.5-coder:14b gemma3:12b qwen2.5:14b nomic-embed-text:latest}"
 
 info "This will pull: ${MODELS_TO_PULL}"
 info "This may take a while depending on your connection speed."
