@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Bitwarden/VaultWarden optional secret management
+  - `install.sh` prompts to configure during setup; installs `bw` CLI, collects API credentials, writes `BW_CLIENT_ID`/`BW_CLIENT_SECRET`/`VAULT_MASTER_PASSWORD` to `.env`
+  - `scripts/resolve-vaultwarden.sh` rewritten: authenticates via API key, resolves `<vaultwarden:org-id/item>` placeholders in `.env`
+  - `start.sh` auto-runs `resolve-vaultwarden.sh` before starting the stack
+  - `.env.example` documents the vaultwarden placeholder format
+  - AGENTS.md updated with resolve commands and table entry
 - GitHub Actions CI workflow (docker-compose validation, shellcheck)
 - GitHub Actions Release workflow (auto-release on version tags)
 - Pull Request template

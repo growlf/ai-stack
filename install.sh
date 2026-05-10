@@ -39,7 +39,7 @@ fi
 if grep -q '<vaultwarden:' "${SCRIPT_DIR}/.env" 2>/dev/null; then
     info "Resolving VaultWarden placeholders in .env..."
     if [[ -f "${SCRIPT_DIR}/scripts/resolve-vaultwarden.sh" ]]; then
-        bash "${SCRIPT_DIR}/scripts/resolve-vaultwarden.sh" --in-place
+        bash "${SCRIPT_DIR}/scripts/resolve-vaultwarden.sh"
     else
         warn "resolve-vaultwarden.sh not found, sourcing .env as-is"
     fi
@@ -323,6 +323,136 @@ OCEOF
     fi
 fi
 
+# ─── Install OpenCode Obsidian plugin ──────────────────────────────────────────
+header "OpenCode Obsidian Plugin"
+
+info "The OpenCode Obsidian plugin embeds the AI assistant in your sidebar."
+info "It needs to be installed in this vault's .obsidian/plugins directory."
+
+if command -v opencode &>/dev/null && command -v bun &>/dev/null; then
+    PLUGIN_DIR="${SCRIPT_DIR}/.obsidian/plugins/obsidian-opencode"
+    if [[ -d "${PLUGIN_DIR}" ]]; then
+        success "OpenCode Obsidian plugin already installed"
+    else
+        info "Cloning opencode-obsidian plugin..."
+        mkdir -p "${SCRIPT_DIR}/.obsidian/plugins"
+        if git clone https://github.com/growlf/opencode-obsidian.git "${PLUGIN_DIR}" 2>/dev/null; then
+            info "Building plugin..."
+            if (cd "${PLUGIN_DIR}" && bun install && bun run build) 2>/dev/null; then
+                success "OpenCode Obsidian plugin installed and built."
+                # Auto-enable in community-plugins.json
+                echo '["opencode-obsidian"]' > "${SCRIPT_DIR}/.obsidian/community-plugins.json"
+                success "Plugin enabled. Restart Obsidian to see the sidebar icon."
+            else
+                warn "Plugin build failed. Check Bun installation."
+                rm -rf "${PLUGIN_DIR}"
+            fi
+        else
+            warn "Failed to clone plugin repo. Check internet connection."
+        fi
+    fi
+else
+    warn "OpenCode CLI or Bun not installed — skipping plugin setup."
+    info "Install both first, then run:"
+    info "  git clone https://github.com/growlf/opencode-obsidian.git .obsidian/plugins/obsidian-opencode"
+    info "  cd .obsidian/plugins/obsidian-opencode && bun install && bun run build"
+fi
+
+# ─── Bitwarden / VaultWarden Secret Management (optional) ──────────────────────
+header "Bitwarden / VaultWarden"
+
+info "The stack can resolve <vaultwarden:path> placeholders in .env"
+info "using Bitwarden (or self-hosted VaultWarden) for secret management."
+info "This lets you store API keys in your vault instead of plaintext in .env."
+echo ""
+
+read -rp "Configure Bitwarden secret management? [y/N] " setup_bw
+if [[ "${setup_bw,,}" == "y" ]]; then
+    # ── Install bw CLI ──────────────────────────────────────────────────────
+    if command -v bw &>/dev/null; then
+        success "Bitwarden CLI already installed ($(bw --version 2>/dev/null || echo 'unknown version'))"
+    else
+        info "Installing Bitwarden CLI via npm..."
+        if ! command -v npm &>/dev/null; then
+            info "npm not found — installing Node.js..."
+            if command -v snap &>/dev/null; then
+                sudo snap install node --classic
+            elif command -v apt-get &>/dev/null; then
+                sudo apt-get update -qq && sudo apt-get install -y -qq nodejs npm
+            else
+                warn "Cannot install npm automatically."
+                info "Install Node.js manually, then run: npm install -g @bitwarden/cli"
+            fi
+        fi
+        if command -v npm &>/dev/null; then
+            npm install -g @bitwarden/cli
+            if command -v bw &>/dev/null; then
+                success "Bitwarden CLI installed."
+            else
+                warn "bw CLI install may need a new shell or PATH update."
+            fi
+        fi
+    fi
+
+    if ! command -v bw &>/dev/null; then
+        warn "bw CLI not available — skipping Bitwarden configuration."
+        info "Install manually: npm install -g @bitwarden/cli"
+    else
+        # ── Get organization ID ────────────────────────────────────────────
+        echo ""
+        info "You need a Bitwarden organization ID to scope secret lookups."
+        info "Find it by logging into the Bitwarden web vault → Settings → Organizations."
+        echo ""
+        read -rp "Bitwarden Organization ID (leave blank to skip): " BW_ORG_ID
+
+        if [[ -n "${BW_ORG_ID}" ]]; then
+            # ── Collect credentials ──────────────────────────────────────
+            echo ""
+            info "Bitwarden needs API credentials to resolve secrets non-interactively."
+            info "Generate them in the web vault: Settings → API Key"
+            echo ""
+            read -rp "BW_CLIENT_ID (e.g. user.xxxxxx): " BW_CLIENT_ID_VAL
+            read -rsp "BW_CLIENT_SECRET: " BW_CLIENT_SECRET_VAL
+            echo ""
+            read -rsp "VAULT_MASTER_PASSWORD (your master password): " BW_MASTER_PW
+            echo ""
+
+            # ── Write to .env ─────────────────────────────────────────────
+            {
+                echo ""
+                echo "# ─── Bitwarden / VaultWarden (added by install.sh) ─────────────────"
+                echo "BW_CLIENT_ID=${BW_CLIENT_ID_VAL}"
+                echo "BW_CLIENT_SECRET=${BW_CLIENT_SECRET_VAL}"
+                echo "VAULT_MASTER_PASSWORD=${BW_MASTER_PW}"
+                echo ""
+                echo "# Secrets stored in Bitwarden — resolved via resolve-vaultwarden.sh"
+                echo "# Format: <vaultwarden:${BW_ORG_ID}/item-name>"
+                echo "ANTHROPIC_API_KEY=<vaultwarden:${BW_ORG_ID}/anthropic-api-key>"
+                echo "GEMINI_API_KEY=<vaultwarden:${BW_ORG_ID}/gemini-api-key>"
+                echo "LITELLM_MASTER_KEY=<vaultwarden:${BW_ORG_ID}/litellm-master-key>"
+            } >> .env
+            success "Bitwarden credentials and placeholders written to .env"
+
+            # ── Attempt resolution ────────────────────────────────────────
+            info "Attempting to resolve placeholders now..."
+            if bash "${SCRIPT_DIR}/scripts/resolve-vaultwarden.sh"; then
+                success "Placeholders resolved — secrets pulled from vault."
+            else
+                warn "Resolution failed. Create the required items in your vault first:"
+                echo "  - ${BW_ORG_ID}/anthropic-api-key"
+                echo "  - ${BW_ORG_ID}/gemini-api-key"
+                echo "  - ${BW_ORG_ID}/litellm-master-key"
+                echo ""
+                echo "  Create them, then run: ./scripts/resolve-vaultwarden.sh"
+            fi
+        else
+            warn "No organization ID — skipping Bitwarden setup."
+        fi
+    fi
+else
+    info "Skipping Bitwarden setup."
+fi
+
 # ─── Done ─────────────────────────────────────────────────────────────────────
 header "Installation Complete"
 
@@ -338,19 +468,18 @@ echo -e "  LiteLLM UI:    ${BOLD}http://localhost:${LITELLM_PORT:-4000}/ui${RESE
 echo ""
 echo -e "${YELLOW}Next steps:${RESET}"
 echo ""
-echo -e "  ${BOLD}OpenCode setup:${RESET}"
-echo -e "    The retriever is configured as an OpenCode tool in this project."
-echo -e "    Run ${BOLD}opencode${RESET} in this directory and ask:"
-echo -e "    \"search my vault for notes about networking\""
-echo ""
 echo -e "  ${BOLD}Obsidian setup:${RESET}"
 echo -e "    1. Open Obsidian"
 echo -e "    2. Click 'Open folder as vault' (or 'Manage vaults' → 'Open')"
-echo -e "    3. Select: ${BOLD}${RETRIEVER_VAULT_PATH:-/home/${STACK_USER}/obsidian}${RESET}"
-echo -e "    4. Install the OpenCode plugin:"
-echo -e "       Settings → Community Plugins → Browse → search 'OpenCode'"
-echo -e "       Or use BRAT: https://github.com/growlf/opencode-obsidian"
-echo -e "    5. Enable the plugin — OpenCode will appear in your Obsidian sidebar"
+echo -e "    3. Select this project folder: ${BOLD}${SCRIPT_DIR}${RESET}"
+echo -e "    4. Go to Settings → Community Plugins → enable ${BOLD}OpenCode${RESET}"
+echo -e "    5. Click the terminal icon in the sidebar (or Ctrl+Shift+O)"
+echo ""
+echo -e "  ${BOLD}RAG / vault search:${RESET}"
+echo -e "    The retriever indexes notes at: ${BOLD}RETRIEVER_VAULT_PATH${RESET}"
+echo -e "    Currently configured as: ${BOLD}${RETRIEVER_VAULT_PATH:-/home/${STACK_USER}/obsidian}${RESET}"
+echo -e "    If your notes live elsewhere, update RETRIEVER_VAULT_PATH in .env"
+echo -e "    Then restart the stack and use OpenCode to search your vault."
 echo ""
 echo -e "  ${BOLD}Need help?${RESET}  docs/retriever-guide.md  |  docs/troubleshooting.md"
 
