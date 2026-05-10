@@ -27,7 +27,7 @@ You can expect an acknowledgement within **72 hours** and a resolution timeline 
 
 - **Never commit real credentials.** Use `.env` (which is git-ignored) for secrets; `.env.example` must only contain placeholder values.
 - **Never commit backup files containing secrets.** Files like `.env.backup`, `.env.backup*`, or timestamped backups (e.g., `.env.example.backup-20260503-014323`) must never be committed. Always add backup file patterns to `.gitignore`.
-- **Docker socket access.** `open-webui` mounts `/var/run/docker.sock`. Restrict access to this stack to trusted users only.
+
 - **Network exposure.** By default, services bind to all interfaces. In production, put a reverse proxy (e.g. nginx, Caddy) with TLS in front and restrict direct port access.
 - **Default passwords.** Change all `changeme` defaults in your `.env` before exposing any service to a network.
 

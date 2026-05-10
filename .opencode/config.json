@@ -1,0 +1,11 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "tools": {
+    "vault-search": true,
+    "vault-search_per_source": true
+  },
+  "permission": {
+    "vault-search": "allow",
+    "vault-search_per_source": "allow"
+  }
+}

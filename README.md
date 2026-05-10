@@ -1,6 +1,6 @@
 # ai-stack
 
-A self-hosted AI stack optimised for **Intel Arc iGPU** on Linux, built around Ollama + Open WebUI with automated model routing, system diagnostics tools, and a systemd-managed Docker Compose stack.
+A self-hosted AI stack optimised for **Intel Arc iGPU** on Linux, built around Ollama + OpenCode. Provides local LLM inference (ollama-arc), cloud API routing (LiteLLM), unified routing (Olla), and Obsidian vault RAG (retriever). The primary AI interface is **OpenCode** (CLI + Obsidian sidebar plugin).
 
 Built and documented through real-world homelab experience on Intel Arc hardware.
 
@@ -11,11 +11,10 @@ Built and documented through real-world homelab experience on Intel Arc hardware
 | Component | Purpose |
 |-----------|---------|
 | **Ollama (ava-agentone/ollama-intel)** | LLM inference with Intel Arc iGPU acceleration via OneAPI/SYCL |
-| **Open WebUI** | Chat interface with tool calling, pipelines, and terminal access |
-| **Pipelines** | Server-side plugin system for model routing and workflow automation |
-| **Open Terminal** | Browser-based terminal inside Open WebUI (with sudo support) |
-| **Smart Model Router** | Auto-routes queries to the best model based on content |
-| **System Diagnostics** | Tool for querying Ollama health, models, and VRAM across multiple machines |
+| **LiteLLM** | Cloud API gateway (Claude, Gemini) |
+| **Olla** | Unified LLM router with load balancing |
+| **Retriever** | Lightweight Obsidian vault RAG (sqlite-vec + FTS5, hybrid search) |
+| **OpenCode** | Primary AI interface — CLI tool + Obsidian sidebar plugin |
 
 ---
 
@@ -29,9 +28,6 @@ Built and documented through real-world homelab experience on Intel Arc hardware
 | Storage | 50 GB free | 100 GB+ free (models are large) |
 | OS | Ubuntu 22.04 | Ubuntu 24.04 |
 
-> **Note:** This stack uses `ghcr.io/ava-agentone/ollama-intel` which replaced the archived `intelanalytics/ipex-llm-inference-cpp-xpu` image (archived January 28, 2026).
-
-> **Note:** This stack has been specifically developed and tested on an Asus Zenbook Duo with an Intel Arc iGPU (Meteor Lake) running Ubuntu 24.04LTS. Other Intel scenarios should work, but have not been specifically tested - yet.  Please feel free to offer some patches or help us to add support for your system & environment.
 ---
 
 ## Quick start
@@ -49,11 +45,12 @@ nano .env   # set your username, paths, and API keys
 chmod +x install.sh scripts/check-arc-gpu.sh
 ./install.sh
 
-# 4. Open
-# http://localhost:3000
-```
+# 4. OpenCode is the primary interface
+opencode --provider olla --base-url http://localhost:40114
 
-Then follow **[docs/post-install.md](docs/post-install.md)** for the Open WebUI configuration steps.
+# 5. Check retriever health
+curl localhost:42000/health
+```
 
 ---
 
@@ -67,15 +64,21 @@ ai-stack/
 ├── systemd/
 │   └── ai-stack.service        # Systemd unit (auto-start on boot)
 ├── scripts/
-│   └── check-arc-gpu.sh        # GPU pre-flight (detects card0/card1 drift)
-├── pipelines/
-│   └── smart_model_router.py   # Auto-routes queries to best model
-├── tools/
-│   └── system_diagnostics.py   # Multi-instance Ollama health + model queries
+│   ├── check-arc-gpu.sh        # GPU pre-flight (detects card0/card1 drift)
+│   ├── discover-herd.sh        # mDNS discovery of remote Ollama nodes
+│   └── generate-olla-config.sh # Reads .env → writes proxy/olla.yaml
+├── retriever/
+│   ├── main.py                 # FastAPI app
+│   ├── search.py               # Hybrid search (FTS5 + vector, RRF fusion)
+│   ├── indexer.py              # Vault scanner + watchdog + chunking
+│   └── Dockerfile
+├── proxy/
+│   └── litellm_config.yaml     # LiteLLM model registry (Claude, Gemini)
 └── docs/
-    ├── post-install.md          # Open WebUI configuration checklist
-    ├── model-guide.md           # Model recommendations and routing table
-    └── troubleshooting.md       # Common issues and fixes
+    ├── deployment-guide.md     # Setup walkthrough
+    ├── model-guide.md          # Model recommendations and routing
+    ├── troubleshooting.md      # Common issues and fixes
+    └── retriever-guide.md      # Obsidian vault RAG setup
 ```
 
 ---
@@ -108,13 +111,23 @@ See **[docs/model-guide.md](docs/model-guide.md)** for details.
 
 ## Multi-machine setup
 
-The System Diagnostics tool supports querying multiple Ollama instances across your LAN. Edit `OLLAMA_INSTANCES` in `tools/system_diagnostics.py`:
+Add remote Ollama nodes via `.env`:
 
-```python
-OLLAMA_INSTANCES = {
-    "local":   "http://ollama-arc:11434",   # this machine
-    "remote1": "http://10.0.0.X:11434",     # remote machine on your LAN
-}
+```
+OLLAMA_REMOTE_WORKSTATION=http://192.168.1.50:11434:75
+```
+
+Then regenerate Olla config:
+
+```bash
+bash scripts/generate-olla-config.sh
+sudo systemctl restart ai-stack.service
+```
+
+Or auto-discover nodes on your LAN:
+
+```bash
+bash scripts/discover-herd.sh --apply
 ```
 
 ---
@@ -130,14 +143,6 @@ docker compose pull
 # Restart with new images
 sudo systemctl restart ai-stack.service
 ```
-
----
-
-## Related projects
-
-- [ava-agentone/ollama-intel](https://github.com/Ava-AgentOne/ollama-intel) — Intel Arc optimised Ollama image
-- [open-webui/open-webui](https://github.com/open-webui/open-webui) — Web interface
-- [open-webui/pipelines](https://github.com/open-webui/pipelines) — Pipeline plugin system
 
 ---
 

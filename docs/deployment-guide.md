@@ -37,12 +37,7 @@ Edit `.env` and set at minimum:
 | `LITELLM_MASTER_KEY` | Change from default — use `sk-local-` + random hex |
 | `ANTHROPIC_API_KEY` | Your Anthropic API key (for Claude) |
 | `GEMINI_API_KEY` | Your Google AI API key (for Gemini) |
-| `WEBUI_SECRET_KEY` | Generate with: `python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` |
-
-```bash
-# Generate keys for all services
-bash scripts/generate-keys.sh
-```
+| `RETRIEVER_VAULT_PATH` | Path to your Obsidian vault directory |
 
 ### 3. Run the installer
 
@@ -53,63 +48,67 @@ bash install.sh
 The installer automates:
 - Creating required Docker volumes
 - Installing the systemd service (`ai-stack.service`)
-- Deploying pipeline files to the Pipelines container
 - Starting the full stack
 - Prompting you to pull models
 
-### 4. Open WebUI
+### 4. Configure OpenCode
 
-Open **http://localhost:3000** and create your admin account (first user becomes admin).
+OpenCode is the primary AI interface. Configure it to use the stack:
 
-> **Important:** The first account registered is the admin. Register immediately on first visit.
+```bash
+opencode --provider olla --base-url http://localhost:40114
+```
 
-### 5. Post-install configuration
+Or add to your OpenCode config to include all providers:
 
-After first login, follow the [post-install guide](post-install.md) to configure:
-- Ollama connection (`http://ollama-arc:11434`)
-- Pipelines connection (`http://pipelines:9099`)
-- Open Terminal integration
-- System Diagnostics tool
-- Smart Model Router
+```yaml
+providers:
+  olla:
+    type: openai
+    base_url: http://localhost:40114/v1
+    api_key: none
+  litellm:
+    type: openai
+    base_url: http://localhost:4000/v1
+    api_key: your-litellm-key
+```
+
+### 5. Verify the retriever
+
+```bash
+curl localhost:42000/health
+curl -X POST localhost:42000/search -H 'Content-Type: application/json' \
+  -d '{"query":"what did I write about networking?"}'
+```
 
 ---
 
 ## Architecture Overview
 
 ```
-Open WebUI :3000
-  ├── Ollama API → Olla :40114/olla/ollama → ollama-arc :11434 (Intel Arc iGPU)
-  │                                       → remote Ollama nodes (LAN, optional)
-  └── OpenAI API → LiteLLM :4000/v1 → Claude (Anthropic)
-                                     → Gemini (Google)
-
-Khoj :42110 → Olla :40114/olla/ollama/v1/ → ollama-arc (RAG over Obsidian vault)
+OpenCode (CLI + Obsidian plugin)
+  ├── tool: retriever :42000  →  sqlite-vec + FTS5 hybrid search over vault
+  ├── provider: Olla :40114   →  ollama-arc :11434 (Intel Arc iGPU)
+  │                           →  OLLAMA_REMOTE_* nodes (LAN, optional)
+  └── provider: LiteLLM :4000 →  Claude (Anthropic), Gemini (Google)
 ```
-
-All traffic flows through **Olla** (port 40114) as the unified LLM router. This means you only configure one endpoint in your tools.
 
 ### Service Quick Reference
 
 | Service | Port | Purpose |
 |---------|------|---------|
-| Open WebUI | 3000 | Chat UI, admin panel |
 | Olla | 40114 | LLM router / load balancer |
 | LiteLLM | 4000 | Cloud model proxy (Claude, Gemini) |
 | Ollama (arc) | 11434 | Local LLM runner (Intel Arc iGPU) |
-| Pipelines | 9099 | Query routing, code execution pipeline |
-| Open Terminal | 8000 | Terminal in the browser |
-| Khoj | 42110 | AI search over your notes |
-| Khoj DB | 5432 | Postgres for Khoj |
+| Retriever | 42000 | Obsidian vault RAG (API-only) |
 
 ---
 
 ## Verifying the Stack
 
-Once the stack is running, verify everything is healthy:
-
 ```bash
 # Olla (LLM router)
-curl http://localhost:40114/health
+curl http://localhost:40114/internal/health
 
 # Ollama (local models)
 curl http://localhost:11434/api/tags
@@ -117,18 +116,11 @@ curl http://localhost:11434/api/tags
 # LiteLLM (cloud gateway)
 curl http://localhost:4000/health/liveness
 
-# Open WebUI
-curl http://localhost:3000/health
-```
+# Retriever
+curl http://localhost:42000/health
 
-Check models are available:
-
-```bash
-# List installed models
+# Check models
 docker exec ollama-arc ollama list
-
-# Check what's loaded in GPU memory
-curl http://localhost:11434/api/ps | python3 -m json.tool
 ```
 
 Verify the GPU is working:
@@ -136,8 +128,6 @@ Verify the GPU is working:
 ```bash
 docker logs ollama-arc 2>&1 | grep -i "device\|gpu\|arc\|oneapi"
 ```
-
-Expected output shows `oneapi` as the inference engine and VRAM > 0.
 
 ---
 
@@ -152,19 +142,6 @@ sudo systemctl restart ai-stack.service
 sudo systemctl status ai-stack.service
 ```
 
-### Direct Docker Compose (for testing)
-
-```bash
-# Start with pre-flight checks
-bash start.sh -d
-
-# Or start directly (no pre-flight)
-docker compose up -d
-
-# Stop
-docker compose down
-```
-
 ### View logs
 
 ```bash
@@ -172,28 +149,28 @@ docker compose down
 docker compose logs --tail=50 -f
 
 # Single service
-docker logs open-webui --tail=30 -f
 docker logs ollama-arc --tail=30 -f
+docker logs retriever --tail=30 -f
 ```
 
 ### Pull new models
 
 ```bash
-docker exec ollama-arc ollama pull deepseek-r1:14b
-docker exec ollama-arc ollama pull gemma4:27b
-docker exec ollama-arc ollama pull mistral-small3.2:24b
-docker exec ollama-arc ollama pull qwen3.5:14b
-docker exec ollama-arc ollama pull qwen2.5-coder:14b
-docker exec ollama-arc ollama pull gemma3:12b
-docker exec ollama-arc ollama pull qwen2.5:14b
 docker exec ollama-arc ollama pull nomic-embed-text:latest
+docker exec ollama-arc ollama pull qwen3.5:14b
 ```
 
 ### Add a remote Ollama node
 
-1. Add to `.env`: `OLLAMA_REMOTE_MYNODE=http://192.168.1.50:11434`
-2. Regenerate Olla config: `bash scripts/generate-olla-config.sh`
-3. Restart: `sudo systemctl restart ai-stack.service`
+```bash
+# Manual
+echo "OLLAMA_REMOTE_MYNODE=http://192.168.1.50:11434" >> .env
+bash scripts/generate-olla-config.sh
+sudo systemctl restart ai-stack.service
+
+# Or auto-discover
+bash scripts/discover-herd.sh --apply
+```
 
 ### Update the stack
 
@@ -203,28 +180,12 @@ docker compose pull
 sudo systemctl restart ai-stack.service
 ```
 
-### Edit configuration and reload
-
-If you change `.env` and need to apply:
-
-```bash
-# Regenerate Olla config (reads OLLAMA_REMOTE_* from .env)
-bash scripts/generate-olla-config.sh
-
-# Regenerate pipeline configs
-bash install.sh  # (idempotent — safe to re-run)
-
-# Restart the stack
-sudo systemctl restart ai-stack.service
-```
-
 ---
 
 ## Security Basics
 
 - **Never commit `.env`** — it's gitignored, but double-check `git status` before committing
-- **Change all default passwords** — `LITELLM_MASTER_KEY`, `WEBUI_SECRET_KEY`, `PIPELINES_API_KEY`, `KHOJ_ADMIN_PASSWORD` must not be defaults
-- **Backup files** — If you create `.env.backup`, it's gitignored, but verify with `git status`
+- **Change all default passwords** — `LITELLM_MASTER_KEY` must not be the default
 - **Network exposure** — All services bind to all interfaces by default. Put a reverse proxy with TLS in front for production
 
 ---
@@ -233,7 +194,6 @@ sudo systemctl restart ai-stack.service
 
 | Guide | What it covers |
 |-------|----------------|
-| [post-install.md](post-install.md) | Open WebUI admin panel setup (connections, tools, pipelines) |
-| [model-guide.md](model-guide.md) | Model recommendations for Intel Arc iGPU, Smart Router routing |
-| [khoj-setup.md](khoj-setup.md) | Khoj / Obsidian vault integration |
+| [model-guide.md](model-guide.md) | Model recommendations for Intel Arc iGPU |
+| [retriever-guide.md](retriever-guide.md) | Configuring OpenCode to search your Obsidian vault |
 | [troubleshooting.md](troubleshooting.md) | Common issues and how to fix them |

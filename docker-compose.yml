@@ -1,17 +1,15 @@
 ###############################################################################
-# AI Stack — with Intel Arc iGPU + cloud models + LiteLLM, unified in Open WebUI
+# AI Stack — with Intel Arc iGPU + cloud models + LiteLLM, unified via Olla router
 #
 # Topology:
 #
-#   Open WebUI  ──[Ollama endpoint]──▶  Olla :40114  ──▶  ollama-arc :11434  (Intel Arc iGPU)
-#               ──[OpenAI endpoint]─┐                 ──▶  [remote-node] :11434  (LAN, optional)
-#                                   └──────────────────▶  LiteLLM :4000
-#                                                               ├─ Claude  (Anthropic)
-#                                                               └─ Gemini  (Google)
+#   Retriever  ──[embed]──▶  Olla :40114  ──▶  ollama-arc :11434  (Intel Arc iGPU)
+#   OpenCode   ──[tool / provider]──▶  Olla :40114
+#               ──[provider]───────▶  LiteLLM :4000  ──▶  Claude (Anthropic)
+#                                                       ──▶  Gemini (Google)
 #
-#   Khoj  ──▶  Olla :40114/olla/ollama  (RAG + semantic search over Obsidian vault)
-#   Pipelines ──▶  Open WebUI  (function pipelines)
-#   Open Terminal ──▶  Open WebUI  (browser shell)
+#   All inference through Olla for unified routing + load balancing.
+#   OpenCode is the primary AI interface (CLI + Obsidian sidebar plugin).
 #
 # Quick start:
 #   1. cp .env.example .env && nano .env
@@ -19,12 +17,9 @@
 #   3. docker compose up -d
 #
 # Service URLs:
-#   Open WebUI    http://localhost:3000
-#   LiteLLM UI    http://localhost:4000/ui      (admin / LITELLM_MASTER_KEY)
 #   Olla status   http://localhost:40114/internal/status/endpoints
-#   Khoj          http://localhost:42110
-#   Pipelines     http://localhost:9099
-#   Open Terminal http://localhost:8000
+#   Retriever     http://localhost:42000/health
+#   LiteLLM UI    http://localhost:4000/ui      (admin / LITELLM_MASTER_KEY)
 ###############################################################################
 
 services:
@@ -116,151 +111,38 @@ services:
     networks:
       - ai-net
 
-  # ─── Open WebUI ────────────────────────────────────────────────────────────
-  # Ollama endpoint → Olla (local models, load balanced)
-  # OpenAI endpoint → LiteLLM (Claude, Gemini — all appear in model picker)
-  open-webui:
-    image: ghcr.io/open-webui/open-webui:main
-    container_name: open-webui
-    restart: always
+  # ─── Retriever — Obsidian vault RAG ────────────────────────────────────────
+  # Lightweight replacement for Khoj + PostgreSQL.
+  # Uses sqlite-vec for vector storage, FTS5 for keyword search,
+  # and watchdog for live vault indexing.
+  # Hybrid search: BM25 (FTS5) + vector similarity, fused via RRF.
+  # Embeddings via Olla → ollama-arc (nomic-embed-text).
+  # API-only: no web UI. Intended for use as an OpenCode tool.
+  retriever:
+    build: ./retriever
+    container_name: retriever
+    restart: unless-stopped
     ports:
-      - "${WEBUI_PORT:-3000}:8080"
-    environment:
-      # Local models via Olla (replaces direct ollama-arc reference)
-      - OLLAMA_BASE_URL=http://olla:40114/olla/ollama
-      # Cloud models via LiteLLM
-      - OPENAI_API_BASE_URL=http://litellm:4000/v1
-      - OPENAI_API_KEY=${LITELLM_MASTER_KEY:-sk-local-admin}
-      # Open Terminal integration
-      - OPEN_TERMINAL_URL=http://open-terminal:8000
-      - OPEN_TERMINAL_API_KEY=${OPEN_TERMINAL_API_KEY:-changeme}
-      # Pipelines integration
-      - PIPELINES_URLS=http://pipelines:9099
-      - PIPELINES_API_KEY=${PIPELINES_API_KEY:-changeme}
-      # UI settings
-      - WEBUI_NAME=${WEBUI_NAME:-Yeti's AI Stack}
-      - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY:?Set WEBUI_SECRET_KEY to a strong random value}
-      - DEFAULT_USER_ROLE=user
-      - ENABLE_SIGNUP=${ENABLE_SIGNUP:-false}
+      - "${RETRIEVER_PORT:-42000}:42000"
     volumes:
-      - open-webui:/app/backend/data
-      - /var/run/docker.sock:/var/run/docker.sock
+      - retriever-data:/data
+      - ${RETRIEVER_VAULT_PATH:-/home/user/obsidian}:/vault:ro
+    environment:
+      - OLLA_URL=http://olla:40114
+      - EMBED_MODEL=${RETRIEVER_EMBED_MODEL:-nomic-embed-text}
+      - CHUNK_SIZE=${RETRIEVER_CHUNK_SIZE:-512}
+      - CHUNK_OVERLAP=${RETRIEVER_CHUNK_OVERLAP:-64}
+      - DB_PATH=/data/retriever.db
+      - VAULT_PATH=/vault
     depends_on:
       - olla
-      - litellm
-      - pipelines
     networks:
       - ai-net
-
-  # ─── Open Terminal ─────────────────────────────────────────────────────────
-  open-terminal:
-    image: ghcr.io/open-webui/open-terminal:latest
-    container_name: open-terminal
-    restart: unless-stopped
-    ports:
-      - "${TERMINAL_PORT:-8000}:8000"
-    environment:
-      - OPEN_TERMINAL_API_KEY=${OPEN_TERMINAL_API_KEY:-changeme}
-      - TERMINAL_SUDO_ENABLED=true
-      - TERMINAL_USER=${STACK_USER:-user}
-    volumes:
-      - open-terminal-data:/home/user
-    networks:
-      - ai-net
-
-  # ─── Pipelines ─────────────────────────────────────────────────────────────
-  pipelines:
-    image: ghcr.io/open-webui/pipelines:main
-    container_name: pipelines
-    restart: always
-    ports:
-      - "${PIPELINES_PORT:-9099}:9099"
-    environment:
-      - PIPELINES_API_KEY=${PIPELINES_API_KEY:-changeme}
-    volumes:
-      - pipelines:/app/pipelines
-    networks:
-      - ai-net
-
-  # ─── Khoj — AI second brain + Obsidian RAG ─────────────────────────────────
-  # Indexes your Obsidian vault for semantic search + RAG over local notes.
-  # Routes inference through Olla so it benefits from load balancing/failover.
-  # Obsidian plugin setup: see docs/khoj-setup.md
-  khoj-db:
-    image: ankane/pgvector:latest
-    container_name: khoj-db
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: khoj
-      POSTGRES_PASSWORD: ${KHOJ_DB_PASSWORD:?Set KHOJ_DB_PASSWORD in your .env file}
-      POSTGRES_DB: khoj
-    volumes:
-      - khoj-db:/var/lib/postgresql/data
-    networks:
-      - ai-net
-
-  khoj:
-    image: ghcr.io/khoj-ai/khoj:latest
-    container_name: khoj
-    restart: unless-stopped
-    ports:
-      - "127.0.0.1:${KHOJ_PORT:-42110}:42110"
-    environment:
-      - KHOJ_ADMIN_EMAIL=${KHOJ_ADMIN_EMAIL:-admin@localhost}
-      - KHOJ_ADMIN_PASSWORD=${KHOJ_ADMIN_PASSWORD:-changeme}
-      - KHOJ_DJANGO_SECRET_KEY=${KHOJ_DJANGO_SECRET_KEY:-changeme-secret-key}
-      - POSTGRES_USER=khoj
-      - POSTGRES_PASSWORD=${KHOJ_DB_PASSWORD:?Set KHOJ_DB_PASSWORD in your .env file}
-      - POSTGRES_DB=khoj
-      - POSTGRES_HOST=khoj-db
-      - POSTGRES_PORT=5432
-      # Route inference through Olla instead of directly to ollama-arc.
-      # Khoj now benefits from load balancing + failover automatically.
-      - OPENAI_BASE_URL=http://olla:40114/olla/ollama/v1/
-      # nomic-embed-text is already in the recommended model stack
-      - EMBEDDING_MODEL=nomic-embed-text
-      # Set KHOJ_NO_AUTH=true in .env only if you want unauthenticated local access.
-      # Default is false (auth required). Do not enable in production without a reverse proxy.
-      - KHOJ_NO_AUTH=${KHOJ_NO_AUTH:-false}
-    command: --host="0.0.0.0" --port=42110 --non-interactive
-    volumes:
-      # Mount your Obsidian vault read-only for indexing
-      - ${OBSIDIAN_VAULT_PATH:-/home/user/obsidian}:/vault:ro
-    depends_on:
-      - khoj-db
-      - olla
-    networks:
-      - ai-net
-
-  # ─── Khoj Sync (CouchDB → Khoj live indexing) ─────────────────────────────
-  # Watches CouchDB _changes feed and pushes updated notes to Khoj in real-time.
-  # Handles LiveSync's chunked storage format automatically.
-  # khoj-sync:
-  #   build:
-  #     context: ./khoj-sync
-  #   container_name: khoj-sync
-  #   restart: unless-stopped
-  #   environment:
-  #     - COUCHDB_URL=${COUCHDB_URL}
-  #     - COUCHDB_DB=${COUCHDB_DB:-yeti-journal}
-  #     - COUCHDB_USER=${COUCHDB_USER}
-  #     - COUCHDB_PASSWORD=${COUCHDB_PASSWORD}
-  #     - KHOJ_URL=http://khoj:42110
-  #     - LOG_LEVEL=${KHOJ_SYNC_LOG_LEVEL:-INFO}
-  #     - KHOJ_SYNC_SKIP_INITIAL=${KHOJ_SYNC_SKIP_INITIAL:-false}
-  #   networks:
-  #     - ai-net
-  #   depends_on:
-  #     - khoj
 
 # ─── Volumes ──────────────────────────────────────────────────────────────────
 volumes:
-  open-webui:
-    external: true          # pre-existing — preserves your WebUI config/history
-  open-terminal-data:
-  pipelines:
-  khoj-db:
   olla-logs:
+  retriever-data:
 
 # ─── Networks ─────────────────────────────────────────────────────────────────
 networks:

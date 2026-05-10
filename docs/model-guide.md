@@ -27,7 +27,7 @@ Recommendations for Intel Arc iGPU with your available RAM.
 
 **qwen3.5:14b** — The latest Qwen generation with improved reasoning and tool calling. Recommended as the default model if your RAM allows alongside the rest of the stack.
 
-**qwen2.5:14b** — Still solid at tool calling in Open WebUI. Falls back to this if qwen3.5 isn't available or you need the smaller footprint.
+**qwen2.5:14b** — Still solid at tool calling. Falls back to this if qwen3.5 isn't available or you need the smaller footprint.
 
 **qwen2.5-coder:14b** — Optimised for code and config work. Understands YAML, Dockerfiles, systemd units, bash. Better than the base model for anything involving file structure or shell commands.
 
@@ -35,7 +35,7 @@ Recommendations for Intel Arc iGPU with your available RAM.
 
 **gemma3:12b** — Long context window, good at summarising large log files or documents. Less reliable at tool calling than qwen2.5.
 
-**nomic-embed-text** — Lightweight embedding model needed if you use Open WebUI's knowledge base / RAG features with your documents.
+**nomic-embed-text** — Lightweight embedding model used by the retriever service for vault RAG.
 
 ---
 
@@ -92,14 +92,6 @@ Common candidates for removal if not in your workflow:
 
 ---
 
-## Smart Model Router routing table
+## Model routing
 
-The `smart_model_router` pipeline automatically routes queries to the best model:
-
-| Trigger keywords | Model selected |
-|-----------------|----------------|
-| health, status, check, monitor, alert, ollama, docker, gpu, vram | `qwen2.5:14b` |
-| script, bash, yaml, compose, dockerfile, code, error, install | `qwen2.5-coder:14b` |
-| why, root cause, analyze, optimize, performance, architecture | `deepseek-r1:14b` |
-| logs, summarize, document, report, explain this | `gemma3:12b` |
-| (anything else) | `qwen2.5:14b` (default) |
+OpenCode handles model selection per conversation — choose the right model for each task. For automatic routing, configure multiple providers in your OpenCode config or use the Olla load balancer for priority-based routing.

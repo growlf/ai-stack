@@ -52,8 +52,8 @@ OLLA_LOAD_BALANCER="${OLLA_LOAD_BALANCER:-least-connections}"
 OLLA_REQUEST_LOGGING="${OLLA_REQUEST_LOGGING:-true}"
 
 # ── Collect OLLAMA_REMOTE_* entries ────────────────────────────────────────────
-declare -A REMOTE_URLS
-declare -A REMOTE_PRIORITIES
+declare -A REMOTE_URLS=()
+declare -A REMOTE_PRIORITIES=()
 
 if [[ -f "$ENV_FILE" ]]; then
   while IFS='=' read -r key val; do

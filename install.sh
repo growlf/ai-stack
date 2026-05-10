@@ -115,14 +115,19 @@ check_memory() {
     fi
 }
 
-check_obsidian_vault() {
-    local vault_path="${OBSIDIAN_VAULT_PATH:-}"
+check_vault() {
+    local vault_path="${RETRIEVER_VAULT_PATH:-}"
     if [[ -z "$vault_path" ]]; then
-        warn "OBSIDIAN_VAULT_PATH not set in .env — Khoj will start but vault indexing will be disabled."
-        warn "Set OBSIDIAN_VAULT_PATH in .env and restart to enable vault search."
+        warn "RETRIEVER_VAULT_PATH not set in .env — retriever will start but vault indexing will be disabled."
     elif [[ ! -d "$vault_path" ]]; then
-        warn "OBSIDIAN_VAULT_PATH=${vault_path} does not exist — Khoj will start but vault won't be mounted."
-        warn "Create the directory or fix the path in .env."
+        warn "RETRIEVER_VAULT_PATH=${vault_path} does not exist."
+        read -rp "Create this directory now? [Y/n] " create_vault
+        if [[ ! "${create_vault,,}" =~ ^n ]]; then
+            mkdir -p "$vault_path"
+            success "Created vault directory: ${vault_path}"
+        else
+            warn "Vault directory not created — retriever will start but vault won't be mounted."
+        fi
     else
         success "Obsidian vault found: ${vault_path}"
     fi
@@ -132,16 +137,16 @@ check_docker
 check_docker_group
 check_intel_gpu
 check_memory
-check_obsidian_vault
+check_vault
 
 # ─── Create docker volumes ────────────────────────────────────────────────────
 header "Docker Volumes"
 
-if ! docker volume inspect open-webui &>/dev/null; then
-    docker volume create open-webui
-    success "Created docker volume: open-webui"
+if ! docker volume inspect ai-stack_retriever-data &>/dev/null; then
+    docker volume create ai-stack_retriever-data
+    success "Created docker volume: retriever-data"
 else
-    success "Docker volume open-webui already exists."
+    success "Docker volume retriever-data already exists."
 fi
 
 # ─── Install systemd service ──────────────────────────────────────────────────
@@ -159,43 +164,7 @@ sudo systemctl daemon-reload
 sudo systemctl enable ai-stack.service
 success "Installed and enabled ai-stack.service"
 
-# ─── Install pipelines ────────────────────────────────────────────────────────
-# NOTE: Only pipeline .py files are deployed here (pipelines/ directory).
-# Tools (System Diagnostics etc.) live in Open WebUI's database and must be
-# added via post-install.sh or manually via Admin Panel → Tools.
-header "Installing Pipelines"
-
-install_pipelines() {
-    info "Starting pipelines container to install pipeline files..."
-
-    cd "${INSTALL_DIR}"
-    docker compose up -d pipelines
-    sleep 5
-
-    # Clear pycache to avoid stale bytecode
-    docker exec pipelines rm -rf /app/pipelines/__pycache__ 2>/dev/null || true
-
-    local installed=0
-    for f in "${SCRIPT_DIR}/pipelines/"*.py; do
-        [[ -f "$f" ]] || continue
-        docker cp "$f" "pipelines:/app/pipelines/$(basename "$f")"
-        success "Installed pipeline: $(basename "$f")"
-        (( installed++ )) || true
-    done
-
-    if (( installed == 0 )); then
-        warn "No pipeline files found in ${SCRIPT_DIR}/pipelines/ — skipping."
-    fi
-
-    docker exec pipelines rm -rf /app/pipelines/__pycache__ 2>/dev/null || true
-    docker restart pipelines
-    sleep 3
-
-    docker logs pipelines --tail 10 | grep -E "Loaded module|ERROR" || true
-    success "Pipelines installed and restarted."
-}
-
-install_pipelines
+# OpenCode (CLI + Obsidian sidebar plugin) is the primary AI interface.
 
 # ─── Start the full stack ─────────────────────────────────────────────────────
 header "Starting AI Stack"
@@ -231,9 +200,11 @@ if [[ "${pull_models,,}" == "y" ]]; then
 
     for model in ${MODELS_TO_PULL}; do
         info "Pulling ${model}..."
-        docker exec ollama-arc "${OLLAMA_BIN}" pull "${model}" \
-            && success "Pulled: ${model}" \
-            || warn "Failed to pull: ${model} (check container logs)"
+        if docker exec ollama-arc "${OLLAMA_BIN}" pull "${model}"; then
+            success "Pulled: ${model}"
+        else
+            warn "Failed to pull: ${model} (check container logs)"
+        fi
     done
 else
     info "Skipping model pull. Pull manually with:"
@@ -242,23 +213,144 @@ else
     done
 fi
 
+# ─── Install OpenCode ─────────────────────────────────────────────────────────
+header "OpenCode CLI"
+
+if command -v opencode &>/dev/null; then
+    success "OpenCode already installed ($(opencode --version 2>/dev/null || echo 'unknown version'))"
+else
+    info "OpenCode is the primary AI interface for this stack."
+    read -rp "Install OpenCode now? [Y/n] " install_oc
+    if [[ ! "${install_oc,,}" =~ ^n ]]; then
+        if command -v npm &>/dev/null; then
+            info "Installing via npm..."
+            npm install -g opencode-ai
+        elif command -v bun &>/dev/null; then
+            info "Installing via bun..."
+            bun install -g opencode-ai
+        else
+            info "Installing via install script..."
+            curl -fsSL https://opencode.ai/install | bash
+        fi
+        if command -v opencode &>/dev/null; then
+            success "OpenCode installed."
+        else
+            warn "OpenCode installation may need manual steps. See https://opencode.ai/docs"
+        fi
+    else
+        info "Skipping OpenCode install. Install later: curl -fsSL https://opencode.ai/install | bash"
+    fi
+fi
+
+# ─── Install Bun (needed by OpenCode Obsidian plugin) ─────────────────────────
+header "Bun Runtime"
+
+if command -v bun &>/dev/null; then
+    success "Bun already installed ($(bun --version 2>/dev/null || echo 'unknown version'))"
+else
+    info "Bun is required by the OpenCode Obsidian plugin."
+    read -rp "Install Bun now? [Y/n] " install_bun
+    if [[ ! "${install_bun,,}" =~ ^n ]]; then
+        info "Installing Bun..."
+        curl -fsSL https://bun.sh/install | bash
+        if command -v bun &>/dev/null; then
+            success "Bun installed."
+        else
+            warn "Bun installed but may need a new shell session or PATH update."
+        fi
+    else
+        info "Skipping Bun install. Install later: curl -fsSL https://bun.sh/install | bash"
+    fi
+fi
+
+# ─── Configure OpenCode with stack providers ──────────────────────────────────
+header "OpenCode Configuration"
+
+OC_CONFIG_DIR="${HOME}/.opencode"
+OC_CONFIG="${OC_CONFIG_DIR}/config.json"
+
+if command -v opencode &>/dev/null; then
+    mkdir -p "${OC_CONFIG_DIR}"
+    if [[ -f "${OC_CONFIG}" ]]; then
+        success "OpenCode config already exists at ${OC_CONFIG}"
+    else
+        info "Creating global OpenCode config with stack providers..."
+        cat > "${OC_CONFIG}" << OCEOF
+{
+  "\$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "olla": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Olla (local Ollama cluster)",
+      "options": {
+        "baseURL": "http://localhost:40114/olla/ollama/v1"
+      },
+      "models": {
+        "qwen3.5:14b": {
+          "name": "Qwen 3.5 14B (local)"
+        },
+        "gemma4:27b": {
+          "name": "Gemma 4 27B (local)"
+        },
+        "mistral-small3.2:24b": {
+          "name": "Mistral Small 3.2 24B (local)"
+        },
+        "nomic-embed-text": {
+          "name": "Nomic Embed Text (local)"
+        }
+      }
+    },
+    "litellm": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "LiteLLM (cloud models)",
+      "options": {
+        "baseURL": "http://localhost:4000/v1"
+      },
+      "models": {
+        "claude-sonnet-4-20250514": {
+          "name": "Claude Sonnet 4 (Anthropic)"
+        },
+        "gemini-2.0-flash-001": {
+          "name": "Gemini 2.0 Flash (Google)"
+        }
+      }
+    }
+  }
+}
+OCEOF
+        success "Created OpenCode config at ${OC_CONFIG}"
+        info "You can add more models by editing ~/.opencode/config.json"
+    fi
+fi
+
 # ─── Done ─────────────────────────────────────────────────────────────────────
 header "Installation Complete"
 
-WEBUI_PORT="${WEBUI_PORT:-3000}"
-KHOJ_PORT="${KHOJ_PORT:-42110}"
+OLLA_PORT="${OLLA_PORT:-40114}"
+RETRIEVER_PORT="${RETRIEVER_PORT:-42000}"
 
 echo -e "${GREEN}${BOLD}Stack is running!${RESET}"
 echo ""
-echo -e "  Open WebUI:  ${BOLD}http://localhost:${WEBUI_PORT}${RESET}"
-echo -e "  Ollama API:  ${BOLD}http://localhost:${OLLAMA_PORT:-11434}${RESET}"
-echo -e "  Pipelines:   ${BOLD}http://localhost:${PIPELINES_PORT:-9099}${RESET}"
-echo -e "  Khoj:        ${BOLD}http://localhost:${KHOJ_PORT}${RESET}"
+echo -e "  Olla (router): ${BOLD}http://localhost:${OLLA_PORT}${RESET}"
+echo -e "  Retriever:     ${BOLD}http://localhost:${RETRIEVER_PORT}/health${RESET}"
+echo -e "  Ollama API:    ${BOLD}http://localhost:${OLLAMA_PORT:-11434}${RESET}"
+echo -e "  LiteLLM UI:    ${BOLD}http://localhost:${LITELLM_PORT:-4000}/ui${RESET}"
 echo ""
 echo -e "${YELLOW}Next steps:${RESET}"
 echo ""
-echo -e "  1. Run ${BOLD}./post-install.sh${RESET} to auto-configure Open WebUI"
-echo -e "  2. Follow ${BOLD}docs/khoj-setup.md${RESET} to connect Obsidian to Khoj"
+echo -e "  ${BOLD}OpenCode setup:${RESET}"
+echo -e "    The retriever is configured as an OpenCode tool in this project."
+echo -e "    Run ${BOLD}opencode${RESET} in this directory and ask:"
+echo -e "    \"search my vault for notes about networking\""
 echo ""
-echo -e "  Full guide: ${BOLD}docs/post-install.md${RESET}"
+echo -e "  ${BOLD}Obsidian setup:${RESET}"
+echo -e "    1. Open Obsidian"
+echo -e "    2. Click 'Open folder as vault' (or 'Manage vaults' → 'Open')"
+echo -e "    3. Select: ${BOLD}${RETRIEVER_VAULT_PATH:-/home/${STACK_USER}/obsidian}${RESET}"
+echo -e "    4. Install the OpenCode plugin:"
+echo -e "       Settings → Community Plugins → Browse → search 'OpenCode'"
+echo -e "       Or use BRAT: https://github.com/growlf/opencode-obsidian"
+echo -e "    5. Enable the plugin — OpenCode will appear in your Obsidian sidebar"
+echo ""
+echo -e "  ${BOLD}Need help?${RESET}  docs/retriever-guide.md  |  docs/troubleshooting.md"
 
