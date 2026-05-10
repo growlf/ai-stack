@@ -367,11 +367,21 @@ info "This lets you store API keys in your vault instead of plaintext in .env."
 echo ""
 
 read -rp "Configure Bitwarden secret management? [y/N] " setup_bw
-if [[ "${setup_bw,,}" == "y" ]]; then
-    # ── Install bw CLI ──────────────────────────────────────────────────────
+if [[ "${setup_bw,,}" != "y" ]]; then
+    info "Skipping Bitwarden setup."
+else
+    # ── Check for existing session ─────────────────────────────────────────
+    BW_HAS_SESSION=false
     if command -v bw &>/dev/null; then
-        success "Bitwarden CLI already installed ($(bw --version 2>/dev/null || echo 'unknown version'))"
-    else
+        bw_status=$(bw status 2>/dev/null || echo '{"status":"unauthenticated"}')
+        if echo "$bw_status" | grep -q '"status":"unlocked"'; then
+            BW_HAS_SESSION=true
+            success "Bitwarden vault already unlocked."
+        fi
+    fi
+
+    # ── Install bw CLI if missing ──────────────────────────────────────────
+    if ! command -v bw &>/dev/null; then
         info "Installing Bitwarden CLI via npm..."
         if ! command -v npm &>/dev/null; then
             info "npm not found — installing Node.js..."
@@ -397,8 +407,44 @@ if [[ "${setup_bw,,}" == "y" ]]; then
     if ! command -v bw &>/dev/null; then
         warn "bw CLI not available — skipping Bitwarden configuration."
         info "Install manually: npm install -g @bitwarden/cli"
-    else
-        # ── Get organization ID ────────────────────────────────────────────
+    elif [[ "$BW_HAS_SESSION" != "true" ]]; then
+        # ── Server URL (self-hosted VaultWarden) ─────────────────────────
+        echo ""
+        info "Are you using Bitwarden cloud (bitwarden.com) or a self-hosted VaultWarden?"
+        read -rp "Self-hosted VaultWarden URL (or leave blank for Bitwarden cloud): " BW_SERVER_URL_VAL
+        if [[ -n "${BW_SERVER_URL_VAL}" ]]; then
+            if [[ "${BW_SERVER_URL_VAL,,}" != https://* ]]; then
+                warn "URL must use HTTPS. Prepending https://"
+                BW_SERVER_URL_VAL="https://${BW_SERVER_URL_VAL}"
+            fi
+            bw config server "$BW_SERVER_URL_VAL" >/dev/null 2>&1
+            success "VaultWarden server configured: ${BW_SERVER_URL_VAL}"
+        fi
+
+        # ── Login ────────────────────────────────────────────────────────
+        echo ""
+        info "Log in to Bitwarden now. Your master password is used only for this"
+        info "one-time login and will NOT be stored anywhere."
+        read -rp "Bitwarden email: " BW_EMAIL
+        read -rsp "Master password (not stored): " BW_MASTER_PW
+        echo ""
+
+        export BW_CLIENT_ID=""
+        export BW_CLIENT_SECRET=""
+        BW_SESSION=$(echo "$BW_MASTER_PW" | bw login "$BW_EMAIL" --raw 2>/dev/null || true)
+        BW_MASTER_PW=""
+        if [[ -z "$BW_SESSION" ]]; then
+            warn "Login failed. You may have 2FA enabled."
+            info "Run 'bw login $BW_EMAIL' manually in another terminal, then re-run install.sh."
+        else
+            success "Logged in as ${BW_EMAIL}."
+            export BW_SESSION
+            bw sync >/dev/null 2>&1
+        fi
+    fi
+
+    if command -v bw &>/dev/null; then
+        # ── Organization ID ──────────────────────────────────────────────
         echo ""
         info "You need a Bitwarden organization ID to scope secret lookups."
         info "Find it by logging into the Bitwarden web vault → Settings → Organizations."
@@ -406,51 +452,83 @@ if [[ "${setup_bw,,}" == "y" ]]; then
         read -rp "Bitwarden Organization ID (leave blank to skip): " BW_ORG_ID
 
         if [[ -n "${BW_ORG_ID}" ]]; then
-            # ── Collect credentials ──────────────────────────────────────
+            # ── API key setup ───────────────────────────────────────────
             echo ""
-            info "Bitwarden needs API credentials to resolve secrets non-interactively."
-            info "Generate them in the web vault: Settings → API Key"
+            info "Generate a Bitwarden API key for non-interactive secret resolution:"
+            info "  Web vault → Settings → Security → Keys tab → View API Key"
+            info "  (Enter your master password to view, then copy the values.)"
             echo ""
             read -rp "BW_CLIENT_ID (e.g. user.xxxxxx): " BW_CLIENT_ID_VAL
             read -rsp "BW_CLIENT_SECRET: " BW_CLIENT_SECRET_VAL
             echo ""
-            read -rsp "VAULT_MASTER_PASSWORD (your master password): " BW_MASTER_PW
-            echo ""
 
-            # ── Write to .env ─────────────────────────────────────────────
+            # Remove any existing LITELLM_MASTER_KEY from .env (avoid duplicates)
+            if grep -q '^LITELLM_MASTER_KEY=' "${SCRIPT_DIR}/.env" 2>/dev/null; then
+                sed -i '/^LITELLM_MASTER_KEY=/d' "${SCRIPT_DIR}/.env"
+                info "Removed existing LITELLM_MASTER_KEY from .env (will be replaced)."
+            fi
+
+            # ── Write to .env ───────────────────────────────────────────
+            if [[ -n "${BW_SERVER_URL_VAL:-}" ]]; then
+                echo "BW_SERVER_URL=${BW_SERVER_URL_VAL}" >> .env
+            fi
             {
                 echo ""
                 echo "# ─── Bitwarden / VaultWarden (added by install.sh) ─────────────────"
                 echo "BW_CLIENT_ID=${BW_CLIENT_ID_VAL}"
                 echo "BW_CLIENT_SECRET=${BW_CLIENT_SECRET_VAL}"
-                echo "VAULT_MASTER_PASSWORD=${BW_MASTER_PW}"
                 echo ""
                 echo "# Secrets stored in Bitwarden — resolved via resolve-vaultwarden.sh"
-                echo "# Format: <vaultwarden:${BW_ORG_ID}/item-name>"
+                echo "# Format: <vaultwarden:org-id/item-name>"
                 echo "ANTHROPIC_API_KEY=<vaultwarden:${BW_ORG_ID}/anthropic-api-key>"
                 echo "GEMINI_API_KEY=<vaultwarden:${BW_ORG_ID}/gemini-api-key>"
                 echo "LITELLM_MASTER_KEY=<vaultwarden:${BW_ORG_ID}/litellm-master-key>"
             } >> .env
-            success "Bitwarden credentials and placeholders written to .env"
 
-            # ── Attempt resolution ────────────────────────────────────────
+            # ── Auto-generate LiteLLM key and store in Bitwarden ────────
+            if command -v bw &>/dev/null; then
+                LITELLM_KEY="sk-$(openssl rand -hex 24 2>/dev/null || head -c32 < /dev/urandom | xxd -p -c64)"
+                litellm_item=$(bw list items --search "litellm-master-key" --organizationid "$BW_ORG_ID" --session "$BW_SESSION" 2>/dev/null | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for item in (data if isinstance(data, list) else []):
+    if item.get('name') == 'litellm-master-key':
+        print(item['id'])
+" 2>/dev/null || true)
+                if [[ -n "$litellm_item" ]]; then
+                    info "Updating existing litellm-master-key in vault..."
+                    bw get item "$litellm_item" --session "$BW_SESSION" 2>/dev/null | \
+                        python3 -c "
+import sys, json
+item = json.load(sys.stdin)
+item['login']['password'] = '${LITELLM_KEY}'
+print(json.dumps(item))
+" 2>/dev/null | \
+                    bw encode | \
+                    bw edit item "$litellm_item" --session "$BW_SESSION" >/dev/null 2>&1 || true
+                else
+                    info "Creating litellm-master-key in vault..."
+                    item_json=$(printf '{"organizationId":"%s","name":"litellm-master-key","type":1,"login":{"username":"litellm","password":"%s","uris":[]}}' "$BW_ORG_ID" "$LITELLM_KEY")
+                    echo "$item_json" | bw encode | bw create item --session "$BW_SESSION" >/dev/null 2>&1 || true
+                fi
+            fi
+
+            # ── Attempt resolution ──────────────────────────────────────
             info "Attempting to resolve placeholders now..."
             if bash "${SCRIPT_DIR}/scripts/resolve-vaultwarden.sh"; then
                 success "Placeholders resolved — secrets pulled from vault."
             else
-                warn "Resolution failed. Create the required items in your vault first:"
-                echo "  - ${BW_ORG_ID}/anthropic-api-key"
-                echo "  - ${BW_ORG_ID}/gemini-api-key"
-                echo "  - ${BW_ORG_ID}/litellm-master-key"
+                warn "Resolution incomplete. Create these items in your vault:"
+                echo "  1. ${BW_ORG_ID}/anthropic-api-key  (login item, password = API key)"
+                echo "  2. ${BW_ORG_ID}/gemini-api-key     (login item, password = API key)"
                 echo ""
-                echo "  Create them, then run: ./scripts/resolve-vaultwarden.sh"
+                echo "  litellm-master-key was auto-created with a generated key."
+                echo "  Then run: ./scripts/resolve-vaultwarden.sh"
             fi
         else
             warn "No organization ID — skipping Bitwarden setup."
         fi
     fi
-else
-    info "Skipping Bitwarden setup."
 fi
 
 # ─── Done ─────────────────────────────────────────────────────────────────────

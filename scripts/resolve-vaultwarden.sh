@@ -16,10 +16,17 @@
 #   ./scripts/resolve-vaultwarden.sh              # resolve in-place
 #   ./scripts/resolve-vaultwarden.sh --dry-run    # show what would change
 #
-# Env vars to set API key auth:
+# Env vars for auth:
+#   BW_SERVER_URL=<url>          (optional, self-hosted VaultWarden)
 #   BW_CLIENT_ID=user.xxxxxx
 #   BW_CLIENT_SECRET=...
-#   VAULT_MASTER_PASSWORD=your-master-pw
+#   VAULT_MASTER_PASSWORD=...    (used to unlock locked vault)
+#
+# NOTE: bw login --apikey is incompatible with self-hosted VaultWarden
+# (the server doesn't return userDecryptionOptions). If API key login fails,
+# the script falls through to the existing session. For fresh setups, run
+# 'bw login' interactively first, or set BW_CLIENT_ID + BW_CLIENT_SECRET
+# and the script will attempt --apikey (may fail on VaultWarden).
 
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -51,6 +58,15 @@ if ! command -v bw &>/dev/null; then
     echo "  Install: npm install -g @bitwarden/cli"
     echo "  Or: https://bitwarden.com/help/cli/"
     exit 1
+fi
+
+# ── Configure server URL (self-hosted VaultWarden) ────────────────────────
+if [[ -n "${BW_SERVER_URL:-}" ]]; then
+    current_server=$(bw config server 2>/dev/null || echo "")
+    if [[ "$current_server" != "$BW_SERVER_URL" ]]; then
+        echo "  Configuring server: ${BW_SERVER_URL}"
+        bw config server "$BW_SERVER_URL" >/dev/null 2>&1
+    fi
 fi
 
 # ── Authenticate ──────────────────────────────────────────────────────────
@@ -168,6 +184,8 @@ TMP_ENV=$(mktemp)
 trap 'rm -f "$TMP_ENV"' EXIT
 
 while IFS= read -r line || [[ -n "$line" ]]; do
+    # Skip comment lines
+    [[ "$line" =~ ^[[:space:]]*# ]] && { echo "$line" >> "$TMP_ENV"; continue; }
     if [[ "$line" =~ \<vaultwarden:([^>]+)\> ]]; then
         placeholder="${BASH_REMATCH[0]}"
         path="${BASH_REMATCH[1]}"
