@@ -181,7 +181,7 @@ fi
 # ─── Pull models ──────────────────────────────────────────────────────────────
 header "Pulling Models"
 
-MODELS_TO_PULL="${MODELS_TO_PULL:-deepseek-r1:14b gemma4:27b mistral-small3.2:24b qwen3.5:14b qwen2.5-coder:14b gemma3:12b qwen2.5:14b nomic-embed-text:latest}"
+MODELS_TO_PULL="${MODELS_TO_PULL:-qwen2.5:1.5b deepseek-r1:14b gemma4:27b mistral-small3.2:24b qwen3.5:14b qwen2.5-coder:14b gemma3:12b qwen2.5:14b nomic-embed-text:latest}"
 
 info "This will pull: ${MODELS_TO_PULL}"
 info "This may take a while depending on your connection speed."
@@ -266,51 +266,62 @@ fi
 # ─── Configure OpenCode with stack providers ──────────────────────────────────
 header "OpenCode Configuration"
 
-OC_CONFIG_DIR="${HOME}/.opencode"
-OC_CONFIG="${OC_CONFIG_DIR}/config.json"
+OC_CONFIG_DIR="${HOME}/.config/opencode"
+OC_CONFIG="${OC_CONFIG_DIR}/opencode.json"
+PROJECT_OC_CONFIG="${SCRIPT_DIR}/opencode.json"
 
 if command -v opencode &>/dev/null; then
     mkdir -p "${OC_CONFIG_DIR}"
+
+    # Global config — providers, models, permissions
     if [[ -f "${OC_CONFIG}" ]]; then
-        success "OpenCode config already exists at ${OC_CONFIG}"
+        success "OpenCode global config already exists at ${OC_CONFIG}"
     else
         info "Creating global OpenCode config with stack providers..."
         cat > "${OC_CONFIG}" << OCEOF
 {
   "\$schema": "https://opencode.ai/config.json",
+  "model": "olla/qwen3.5:14b",
   "provider": {
     "olla": {
       "npm": "@ai-sdk/openai-compatible",
-      "name": "Olla (local Ollama cluster)",
-      "options": {
-        "baseURL": "http://localhost:40115/v1"
-      },
-      "models": {
-        "qwen3.5:14b": {
-          "name": "Qwen 3.5 14B (default)"
-        },
-        "gemma4:27b": {
-          "name": "Gemma 4 27B (heavy lifting)"
-        },
-        "mistral-small3.2:24b": {
-          "name": "Mistral Small 3.2 24B (tool calling)"
-        },
-        "qwen2.5:14b": {
-          "name": "Qwen 2.5 14B (diagnostics)"
-        },
-        "qwen2.5-coder:14b": {
-          "name": "Qwen 2.5 Coder 14B (code)"
-        },
-        "deepseek-r1:14b": {
-          "name": "DeepSeek R1 14B (reasoning)"
-        },
-        "gemma3:12b": {
-          "name": "Gemma 3 12B (longform/logs)"
-        },
-        "nomic-embed-text": {
-          "name": "Nomic Embed Text (embeddings)"
-        }
-      }
+          "name": "Olla (local Ollama cluster)",
+          "options": {
+            "baseURL": "http://localhost:40115/v1"
+          },
+          "models": {
+            "auto": {
+              "name": "Auto-select (Smart Router)",
+              "tools": true
+            },
+            "qwen2.5:14b": {
+              "name": "Qwen 2.5 14B (diagnostics)",
+              "tools": true
+            },
+            "qwen2.5-coder:14b": {
+              "name": "Qwen 2.5 Coder 14B (code)",
+              "tools": true
+            },
+            "deepseek-r1:14b": {
+              "name": "DeepSeek R1 14B (reasoning)",
+              "tools": true
+            },
+            "gemma3:12b": {
+              "name": "Gemma 3 12B (longform)",
+              "tools": true
+            },
+            "gemma4:27b": {
+              "name": "Gemma 4 27B (heavy lifting)",
+              "tools": true
+            },
+            "mistral-small3.2:24b": {
+              "name": "Mistral Small 3.2 24B (tool calling)",
+              "tools": true
+            },
+            "nomic-embed-text": {
+              "name": "Nomic Embed Text (embeddings)"
+            }
+          }
     },
     "litellm": {
       "npm": "@ai-sdk/openai-compatible",
@@ -320,18 +331,40 @@ if command -v opencode &>/dev/null; then
       },
       "models": {
         "claude-sonnet-4-20250514": {
-          "name": "Claude Sonnet 4 (Anthropic)"
+          "name": "Claude Sonnet 4 (Anthropic)",
+          "tools": true
         },
         "gemini-2.0-flash-001": {
-          "name": "Gemini 2.0 Flash (Google)"
+          "name": "Gemini 2.0 Flash (Google)",
+          "tools": true
         }
       }
     }
+  },
+  "permission": {
+    "bash": "ask",
+    "edit": "ask",
+    "write": "ask"
   }
 }
 OCEOF
-        success "Created OpenCode config at ${OC_CONFIG}"
-        info "You can add more models by editing ~/.opencode/config.json"
+        success "Created OpenCode global config at ${OC_CONFIG}"
+        info "You can add more models by editing ${OC_CONFIG}"
+    fi
+
+    # Project-level config — instructions injected from AGENTS.md
+    if [[ ! -f "${PROJECT_OC_CONFIG}" ]]; then
+        cat > "${PROJECT_OC_CONFIG}" << 'OCEOF'
+{
+  "$schema": "https://opencode.ai/config.json",
+  "instructions": [
+    "AGENTS.md"
+  ]
+}
+OCEOF
+        success "Created project OpenCode config at ${PROJECT_OC_CONFIG}"
+    else
+        success "Project OpenCode config already exists at ${PROJECT_OC_CONFIG}"
     fi
 fi
 

@@ -61,7 +61,17 @@ OpenCode is the primary AI interface. The installer creates a global config at `
 - **Olla** → Smart Router (`:40115`) — auto-routes local model requests
 - **LiteLLM** (`:4000`) — direct access to Claude, Gemini
 
-The Olla provider now routes through the Smart Model Router, which classifies your query and selects the best model for the task.
+The Olla provider routes through the Smart Model Router, which classifies your query and selects the best model (qwen3.5:14b for general use, qwen2.5-coder:14b for code, deepseek-r1:14b for reasoning, etc.).
+
+#### Selecting the local Smart Router connection
+
+After installation, choose the Smart Router-powered provider in OpenCode:
+
+- **TUI**: Press `/` to open the command palette, select **Models**, then pick a model in `olla/...` format (e.g. `olla/qwen3.5:14b`). This routes all requests through the Smart Router for automatic model selection.
+- **CLI**: [[`opencode -p olla]] "your task"` — uses the Smart Router for the current session.
+- **Set as default**: Add `"model": "olla/qwen3.5:14b"` to `~/.opencode/config.json`. Every new conversation will use the Smart Router automatically.
+
+Once selected, the Smart Router handles model selection internally — you don't need to pick a specific model for each query. To use cloud models instead, select the `litellm` provider (TUI: `litellm/claude-sonnet-4-20250514`, CLI: `-p litellm`).
 
 ### 5. Verify the retriever
 

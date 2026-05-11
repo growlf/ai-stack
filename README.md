@@ -54,6 +54,16 @@ chmod +x install.sh scripts/check-arc-gpu.sh
 #   - Prompt to pull models
 ```
 
+### After installation
+
+Select the **Smart Router** (local model picker) in OpenCode to use local LLMs:
+
+- **TUI**: Press `/` → **Models** → choose `olla/qwen3.5:14b`
+- **CLI**: `opencode -p olla "your task"`
+- **Default**: Add `"model": "olla/qwen3.5:14b"` to `~/.opencode/config.json`
+
+See [deployment-guide.md §4](docs/deployment-guide.md#4-configure-opencode) for details.
+
 ---
 
 ## Project structure

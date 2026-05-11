@@ -139,9 +139,11 @@ services:
     networks:
       - ai-net
 
-  # ── Smart Model Router — content-based model selection ──────────────────
-  # Sits between OpenCode and Olla. Classifies queries and auto-selects the
-  # best local model. Cloud model requests pass through unchanged.
+  # ── Smart Model Router — LLM-based model selection ──────────────────────
+  # Uses qwen2.5:0.5b to intelligently route queries to the best model.
+  # When the user sends a request with the default model (qwen3.5:14b), the
+  # router sends the query to the routing model, which selects the optimal
+  # model for that specific task. Explicit model choices pass through unchanged.
   # Point OpenCode's Olla provider at http://localhost:40115.
   router:
     build: ./router
@@ -151,6 +153,9 @@ services:
       - "40115:40115"
     environment:
       - OLLA_URL=http://olla:40114
+      - OLLAMA_DIRECT=http://ollama-arc:11434
+      - ROUTING_MODEL=${ROUTING_MODEL:-qwen2.5:0.5b}
+      - DEFAULT_MODEL=qwen3.5:14b
       - LISTEN_HOST=0.0.0.0
       - LISTEN_PORT=40115
     depends_on:

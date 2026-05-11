@@ -57,7 +57,8 @@ All traffic flows through **Olla** (port 40114) as the unified LLM router:
 ```
 OpenCode (CLI + Obsidian plugin)
   ├── tool: retriever :42000  →  sqlite-vec + FTS5 hybrid search over vault
-  ├── provider: Olla :40115   →  Smart Router (auto-selects local model)
+  ├── provider: Olla :40115   →  Smart Router (LLM-based model selection)
+  │                           →  qwen2.5:0.5b picks best model per query
   │                           →  ollama-arc :11434 (Intel Arc iGPU)
   │                           →  OLLAMA_REMOTE_* nodes (LAN, optional)
   └── provider: LiteLLM :4000 →  Claude (Anthropic), Gemini (Google)
@@ -74,7 +75,7 @@ OpenCode (CLI + Obsidian plugin)
 | `scripts/discover-herd.sh` | mDNS + subnet scan for other Ollama nodes on LAN |
 | `scripts/check-arc-gpu.sh` | GPU pre-flight: detects card0/card1 drift, updates `.env`, used as `ExecStartPre` |
 | `scripts/resolve-vaultwarden.sh` | Resolves `<vaultwarden:path>` placeholders in `.env` via `bw` CLI |
-| `router/` | Smart Model Router: content-based model selection between OpenCode and Olla |
+| `router/` | Smart Model Router: uses `qwen2.5:0.5b` to intelligently route queries to the best model for the task |
 | `proxy/litellm_config.yaml` | Static LiteLLM model registry (Claude, Gemini models) |
 
 ## Key conventions
@@ -118,6 +119,25 @@ RETRIEVER_CHUNK_OVERLAP=64
 - **CI** (`.github/workflows/ci.yml`): validates compose syntax, shellchecks scripts, scans `.env.example` for leaked credentials
 - **Release** (`.github/workflows/release.yml`): triggered on `v*.*.*` tags, extracts notes from `CHANGELOG.md`
 - Branch: `main`
+
+## Using OpenCode providers
+
+OpenCode connects to the stack through two providers, both configured in `~/.opencode/config.json`:
+
+| Provider | Endpoint | Routes to |
+|---|---|---|
+| `olla` | `localhost:40115/v1` | Smart Router → auto model selection → ollama-arc + LAN nodes |
+| `litellm` | `localhost:4000/v1` | LiteLLM → Claude (Anthropic), Gemini (Google) |
+
+**To switch between them:**
+
+- **TUI**: Press `/models`, select a model in format `provider/model` (e.g. `olla/auto`, `olla/gemma3:12b`, or `litellm/claude-sonnet-4-20250514`)
+- **CLI**: `opencode -p olla -m auto "your task"`
+- **Set default**: Add `"model": "opencode/big-pickle"` to `opencode.json` (or `"olla/auto"` for local-first with smart routing)
+
+The Smart Router (`:40115`) auto-classifies your query using `qwen2.5:0.5b`, a tiny LLM that reads your request and picks the optimal model. Select **`olla/auto`** in the `/models` menu to use it — your query will be sent to the smart router, which routes to the best local model for the task. If you pick a specific model (e.g., `olla/gemma3:12b`), it passes through directly to that model. LiteLLM routes directly to cloud models by name.
+
+On startup, the router also checks for recommended model upgrades (models that would run well on your Intel Arc iGPU but aren't yet pulled) and logs suggestions to help you improve your setup.
 
 ## OpenCode tools
 
