@@ -2,12 +2,13 @@
 # discover-network.sh — scan LAN + VPN subnets for AI-stack services
 #
 # Finds Ollama, Olla, LiteLLM, and OpenCode instances on reachable networks.
-# Verifies each found port by probing its API, then asks which to add.
+# Verifies each found port by probing its API, then interactively prompts
+# which discovered services to add and/or which existing entries to remove.
 #
 # Usage:
-#   ./scripts/discover-network.sh              # scan, prompt before writing
-#   ./scripts/discover-network.sh --apply      # scan and write without prompt
-#   ./scripts/discover-network.sh --dry-run    # scan and print, don't write
+#   ./scripts/discover-network.sh              # scan, interactive add/remove
+#   ./scripts/discover-network.sh --apply      # add all discovered, no prompt
+#   ./scripts/discover-network.sh --dry-run    # scan and print, don't modify
 
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -22,21 +23,9 @@ ok()    { echo -e "${GREEN}[OK]${RESET}    $*"; }
 warn()  { echo -e "${YELLOW}[WARN]${RESET}  $*"; }
 err()   { echo -e "${RED}[ERROR]${RESET} $*" >&2; }
 
-# Ports to scan for each service type
-declare -A SERVICE_PORTS
-SERVICE_PORTS[ollama]="11434"
-SERVICE_PORTS[olla]="40114"
-SERVICE_PORTS[litellm]="4000"
-SERVICE_PORTS[opencode]="14096"
+ALL_PORTS="11434,11435,40114,4000,14096"
 
-# All unique ports
-ALL_PORTS=""
-for p in "${SERVICE_PORTS[@]}"; do
-    ALL_PORTS="${ALL_PORTS}${ALL_PORTS:+,}${p}"
-done
-ALL_PORTS="${ALL_PORTS},11435"  # common alt Ollama port
-
-# ── 1. Discover network interfaces and subnets ───────────────────────────
+# ── 1. Discover subnets ──────────────────────────────────────────────────
 discover_subnets() {
     local subnets=()
     while IFS= read -r line; do
@@ -45,17 +34,14 @@ discover_subnets() {
         addr=$(echo "$line" | awk '{print $4}')
         [[ -z "$addr" ]] && continue
         ip=$(echo "$addr" | cut -d/ -f1)
-        # Skip loopback, docker bridges, veth pairs, IPv6
         [[ "$iface" == lo ]] && continue
         [[ "$iface" == docker* ]] && continue
         [[ "$iface" == br-* ]] && continue
         [[ "$iface" == veth* ]] && continue
-        [[ "$addr" == *:* ]] && continue  # skip IPv6
-        # Compute network from IP/CIDR
+        [[ "$addr" == *:* ]] && continue
         local network
         network=$(ipcalc -n "$addr" 2>/dev/null | grep ^NETWORK | awk '{print $2}') || true
         if [[ -z "$network" ]]; then
-            # Fallback: use first 3 octets for /24
             network=$(echo "$ip" | cut -d. -f1-3)".0/24"
         fi
         subnets+=("$network ($iface)")
@@ -64,27 +50,21 @@ discover_subnets() {
 }
 
 # ── 2. Scan ports on a subnet ────────────────────────────────────────────
-# Returns: host:port lines
 scan_subnet() {
     local subnet="$1"
     local subnet_only
     subnet_only=$(echo "$subnet" | cut -d' ' -f1)
-    local iface
-    iface=$(echo "$subnet" | cut -d'(' -f2 | cut -d')' -f1)
-
     if command -v nmap &>/dev/null; then
         nmap -p "$ALL_PORTS" --open -T4 -n "${subnet_only}" 2>/dev/null | \
             awk '/^Nmap scan report for/{host=$NF} /^[0-9]+\/tcp/{print host ":" $1}' | \
             cut -d/ -f1
     else
-        # Fallback: sequential nc scan (slow — warn user)
         local base
         base=$(echo "$subnet_only" | sed 's/\.0\/.*$//')
         warn "nmap not found — falling back to slow sequential scan"
         for i in $(seq 1 254); do
             local host="${base}.${i}"
-            local IFS=","
-            for port in $ALL_PORTS; do
+            for port in $(echo "$ALL_PORTS" | tr ',' ' '); do
                 (echo >/dev/tcp/"${host}"/"${port}") 2>/dev/null && echo "${host}:${port}" &
             done
             wait
@@ -93,116 +73,288 @@ scan_subnet() {
 }
 
 # ── 3. Verify a discovered service ───────────────────────────────────────
-# Returns: "TYPE|name|version" or empty if unverifiable
 verify_service() {
-    local host="$1"
-    local port="$2"
+    local host="$1" port="$2"
     local base="http://${host}:${port}"
+    local resp
 
     # Ollama
     if [[ "$port" == "11434" || "$port" == "11435" ]]; then
-        local resp
         resp=$(curl -sf "${base}/api/tags" 2>/dev/null || true)
-        if echo "$resp" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('models',[{}])[0].get('name',''))" 2>/dev/null | grep -q .; then
-            local model version
-            model=$(echo "$resp" | python3 -c "import sys,json; d=json.load(sys.stdin); print(', '.join(m.get('name','') for m in d.get('models',[])[:3]))" 2>/dev/null)
-            version=$(echo "$resp" | python3 -c "
-import sys,json; d=json.load(sys.stdin)
+        if echo "$resp" | python3 -c "
+import sys,json
+d=json.load(sys.stdin)
 models=d.get('models',[])
 if models:
-    digest=models[0].get('digest','')[:12]
-    print(f'ollama ({len(models)} models)')
+    names=[m.get('name','') for m in models[:3]]
+    print(f\"ollama|{', '.join(names)}|{len(models)} models\")
 else:
-    print('ollama')
-" 2>/dev/null)
-            echo "ollama|${model}|${version}"
+    sys.exit(1)
+" 2>/dev/null; then
             return
         fi
     fi
 
     # Olla
     if [[ "$port" == "40114" ]]; then
-        local resp
         resp=$(curl -sf "${base}/internal/health" 2>/dev/null || true)
         if echo "$resp" | grep -q '"status":"ok"'; then
-            local endpoints
-            endpoints=$(curl -sf "${base}/internal/status/endpoints" 2>/dev/null | python3 -c "
+            local ep_count
+            ep_count=$(curl -sf "${base}/internal/status/endpoints" 2>/dev/null | python3 -c "
 import sys,json; d=json.load(sys.stdin)
 eps=d.get('endpoints',d.get('proxies',[]))
-print(f'{len(eps)} endpoints')
-" 2>/dev/null || echo "unknown")
-            echo "olla|${endpoints}|"
+print(len(eps))
+" 2>/dev/null || echo "?")
+            echo "olla||${ep_count} endpoints"
             return
         fi
     fi
 
     # LiteLLM
     if [[ "$port" == "4000" ]]; then
-        local resp
         resp=$(curl -sf "${base}/health/liveness" 2>/dev/null || curl -sf "${base}/health" 2>/dev/null || true)
         if echo "$resp" | grep -q '"status":"ok"'; then
-            local models
-            models=$(curl -sf "${base}/v1/models" 2>/dev/null | python3 -c "
+            local model_count
+            model_count=$(curl -sf "${base}/v1/models" 2>/dev/null | python3 -c "
 import sys,json; d=json.load(sys.stdin)
 data=d.get('data',[])
-print(f'{len(data)} models')
-" 2>/dev/null || echo "unknown")
-            echo "litellm|${models}|"
+print(len(data))
+" 2>/dev/null || echo "?")
+            echo "litellm||${model_count} models"
             return
         fi
     fi
 
-    # OpenCode serve
+    # OpenCode
     if [[ "$port" == "14096" ]]; then
-        local resp
         resp=$(curl -sf "${base}/" 2>/dev/null || true)
         if echo "$resp" | grep -qi 'opencode'; then
-            echo "opencode|serve|"
-            return
-        fi
-    fi
-
-    # Generic Ollama check (port 11434 without /api/tags)
-    if [[ "$port" == "11434" || "$port" == "11435" ]]; then
-        if curl -sf "${base}/" >/dev/null 2>&1; then
-            echo "ollama|unknown|"
+            echo "opencode||serve"
             return
         fi
     fi
 }
 
-# ── 4. Present results ──────────────────────────────────────────────────
-print_table() {
-    local results=("$@")
+# ── 4. List OLLAMA_REMOTE_* currently in .env ───────────────────────────
+list_existing() {
+    grep '^OLLAMA_REMOTE_' "$ENV_FILE" 2>/dev/null || true
+}
+
+# ── 5. Add a service ────────────────────────────────────────────────────
+add_service() {
+    local host="$1" port="$2" svc_type="$3" svc_name="$4"
+    if [[ "$svc_type" != "ollama" ]]; then
+        echo "skipped"
+        return
+    fi
+    local name
+    name=$(echo "${host}" | tr '.-' '_')
+    local var="OLLAMA_REMOTE_${name}"
+    if grep -q "^${var}=" "$ENV_FILE" 2>/dev/null; then
+        echo "exists"
+        return
+    fi
+    echo "OLLAMA_REMOTE_${name}=http://${host}:${port}" >> "$ENV_FILE"
+    echo "added"
+}
+
+# ── 6. Remove an existing entry ─────────────────────────────────────────
+remove_entry() {
+    local line="$1"
+    local var
+    var=$(echo "$line" | cut -d= -f1)
+    if [[ "$(uname)" == "Darwin" ]]; then
+        sed -i '' "/^${var}=/d" "$ENV_FILE"
+    else
+        sed -i "/^${var}=/d" "$ENV_FILE"
+    fi
+    echo "removed"
+}
+
+# ── 7. Interactive selection menu ───────────────────────────────────────
+interactive_menu() {
+    local discovered=("$@")
+    local existing=()
+    while IFS= read -r line; do
+        existing+=("$line")
+    done < <(list_existing)
+
     echo ""
     echo -e "${BOLD}${BLUE}Discovered AI Services${RESET}"
-    echo -e "${BLUE}────────────────────────────────────────────────────────${RESET}"
-    printf "  %-18s %-8s %-10s %-30s\n" "Host" "Port" "Type" "Details"
-    echo "  ─────────────────────────────────────────────────────"
-    for entry in "${results[@]}"; do
+    echo -e "${BLUE}────────────────────────────────────────────────────────────────${RESET}"
+    printf "  %-3s %-20s %-10s %-40s\n" "#" "Host:Port" "Type" "Details"
+    echo "  ────────────────────────────────────────────────────────────────"
+    local i=1
+    for entry in "${discovered[@]}"; do
         IFS='|' read -r host port svc_type svc_name svc_ver <<< "$entry"
         local details="${svc_name}"
-        [[ -n "$svc_ver" ]] && details="${details} — ${svc_ver}"
-        printf "  %-18s %-8s %-10s %-30s\n" "${host}:${port}" "" "${svc_type}" "${details}"
+        [[ -n "$svc_ver" ]] && details="${svc_ver}"
+        printf "  %-3d %-20s %-10s %-40s\n" "$i" "${host}:${port}" "${svc_type}" "${details}"
+        i=$((i + 1))
     done
+
+    if [[ ${#existing[@]} -gt 0 ]]; then
+        echo ""
+        echo -e "${YELLOW}Currently configured in .env:${RESET}"
+        for line in "${existing[@]}"; do
+            echo "    ${line}"
+        done
+    fi
+
     echo ""
+    if [[ "$MODE" == "--dry-run" ]]; then
+        info "Dry-run mode — no changes made"
+        info "  Would prompt to add ${#discovered[@]} discovered and remove ${#existing[@]} configured"
+        return
+    fi
+
+    local doing=""
+    while true; do
+        echo ""
+        echo "  a <nums|all>  — add discovered services by number"
+        echo "  r <nums|all>  — remove existing entries by number"
+        if [[ ${#existing[@]} -eq 0 ]]; then
+            echo "  d             — done"
+        else
+            echo "  d             — done (exit without changes)"
+        fi
+        echo ""
+        read -rp "  Choose action [a/r/d]: " cmd args
+
+        case "${cmd}" in
+            a|add)
+                if [[ -z "${args:-}" ]]; then
+                    read -rp "    Enter numbers (e.g. 1,3,5 or 'all'): " args
+                fi
+                local added=0 skipped=0 existed=0
+                if [[ "$args" == "all" ]]; then
+                    for entry in "${discovered[@]}"; do
+        IFS='|' read -r h p t n _ <<< "$entry"
+                        result=$(add_service "$h" "$p" "$t" "$n")
+                        case "$result" in
+                            added)   (( added++ )) || true ;;
+                            exists)  (( existed++ )) || true ;;
+                            skipped) (( skipped++ )) || true ;;
+                        esac
+                    done
+                else
+                    local IFS=,
+                    for num in $args; do
+                        num=$(echo "$num" | xargs)
+                        local idx=$((num - 1))
+                        if [[ $idx -ge 0 && $idx -lt ${#discovered[@]} ]]; then
+                            IFS='|' read -r h p t n _ <<< "${discovered[$idx]}"
+                            result=$(add_service "$h" "$p" "$t" "$n")
+                            case "$result" in
+                                added)   ok "Added ${h}:${p} (${t})";  (( added++ )) || true ;;
+                                exists)  warn "${h}:${p} already configured"; (( existed++ )) || true ;;
+                                skipped) warn "${h}:${p} (${t}) — not an Ollama node, can't add via OLLAMA_REMOTE_*"; (( skipped++ )) || true ;;
+                            esac
+                        fi
+                    done
+                fi
+                echo ""
+                info "Result: ${added} added, ${existed} already present, ${skipped} skipped (non-Ollama)"
+                doing="changed"
+                ;;
+
+            r|remove)
+                if [[ -z "${args:-}" ]]; then
+                    read -rp "    Enter numbers (1-${#existing[@]} or 'all'): " args
+                fi
+                if [[ ${#existing[@]} -eq 0 ]]; then
+                    warn "No entries to remove"
+                    continue
+                fi
+                local removed=0
+                if [[ "$args" == "all" ]]; then
+                    for line in "${existing[@]}"; do
+                        local var
+                        var=$(echo "$line" | cut -d= -f1)
+                        if [[ "$(uname)" == "Darwin" ]]; then
+                            sed -i '' "/^${var}=/d" "$ENV_FILE"
+                        else
+                            sed -i "/^${var}=/d" "$ENV_FILE"
+                        fi
+                        ok "Removed ${var}"
+                        (( removed++ )) || true
+                    done
+                    existing=()
+                else
+                    # Remove in reverse order so indices stay valid
+                    local IFS=,
+                    local sorted_nums
+                    sorted_nums=$(echo "$args" | tr ',' '\n' | sort -rn) || true
+                    unset IFS
+                    local nums=()
+                    while IFS= read -r num; do
+                        nums+=("$num")
+                    done <<< "$sorted_nums"
+                    for num in "${nums[@]}"; do
+                        local idx=$((num - 1))
+                        if [[ $idx -ge 0 && $idx -lt ${#existing[@]} ]]; then
+                            local line="${existing[$idx]}"
+                            local var
+                            var=$(echo "$line" | cut -d= -f1)
+                            if [[ "$(uname)" == "Darwin" ]]; then
+                                sed -i '' "/^${var}=/d" "$ENV_FILE"
+                            else
+                                sed -i "/^${var}=/d" "$ENV_FILE"
+                            fi
+                            ok "Removed ${var}"
+                            (( removed++ )) || true
+                        fi
+                    done
+                    # Refresh existing list
+                    existing=()
+                    while IFS= read -r line; do
+                        existing+=("$line")
+                    done < <(list_existing)
+                fi
+                echo ""
+                info "Removed ${removed} entry/entries"
+                doing="changed"
+                ;;
+
+            d|done)
+                if [[ "$doing" == "changed" ]]; then
+                    echo ""
+                    info "Regenerating Olla config..."
+                    bash "${SCRIPT_DIR}/generate-olla-config.sh"
+                    echo ""
+                    ok "Done! Restart the stack: sudo systemctl restart ai-stack.service"
+                else
+                    info "No changes made"
+                fi
+                break
+                ;;
+
+            *)
+                warn "Unknown action: ${cmd}. Use a, r, or d."
+                ;;
+        esac
+    done
 }
 
-# ── 5. Add to Olla config ───────────────────────────────────────────────
-add_to_olla() {
-    local host="$1"
-    local port="$2"
-    local svc_type="$3"
-    # Write OLLAMA_REMOTE_* for Ollama nodes; others need different handling
-    if [[ "$svc_type" == "ollama" ]]; then
-        local name
-        name=$(echo "$host" | tr '.-' '_')
-        echo "OLLAMA_REMOTE_${name}=http://${host}:${port}" >> "$ENV_FILE"
-        ok "Added OLLAMA_REMOTE_${name}=http://${host}:${port} to .env"
-    else
-        warn "Skipping ${svc_type} — only Ollama nodes are added via OLLAMA_REMOTE_*"
-        info "  Olla and LiteLLM on the same subnet are routed through Olla automatically"
-        info "  if Olla's model_discovery is enabled (default: every 5m)"
+# ── Apply mode: add all discovered, no prompt ────────────────────────────
+apply_all() {
+    local discovered=("$@")
+    local added=0 existed=0 skipped=0
+    for entry in "${discovered[@]}"; do
+        IFS='|' read -r h p t n _ <<< "$entry"
+        result=$(add_service "$h" "$p" "$t" "$n")
+        case "$result" in
+            added)   (( added++ )) || true ;;
+            exists)  (( existed++ )) || true ;;
+            skipped) (( skipped++ )) || true ;;
+        esac
+    done
+    echo ""
+    info "Result: ${added} added, ${existed} already present, ${skipped} skipped (non-Ollama)"
+    if [[ "$added" -gt 0 ]]; then
+        info "Regenerating Olla config..."
+        bash "${SCRIPT_DIR}/generate-olla-config.sh"
+        ok "Done! Restart the stack: sudo systemctl restart ai-stack.service"
     fi
 }
 
@@ -212,7 +364,6 @@ main() {
     info "Scanning network for AI services (Ollama, Olla, LiteLLM, OpenCode)..."
     echo ""
 
-    # Get subnets
     mapfile -t subnets < <(discover_subnets)
     if [[ ${#subnets[@]} -eq 0 ]]; then
         err "No non-local network interfaces found"
@@ -222,7 +373,6 @@ main() {
     for s in "${subnets[@]}"; do echo "  - $s"; done
     echo ""
 
-    # Scan each subnet
     declare -a found
     for subnet in "${subnets[@]}"; do
         local subnet_only
@@ -233,7 +383,6 @@ main() {
             local host port
             host=$(echo "$result" | cut -d: -f1)
             port=$(echo "$result" | cut -d: -f2)
-            info "  Verifying ${host}:${port}..."
             local verified
             verified=$(verify_service "$host" "$port" || true)
             if [[ -n "$verified" ]]; then
@@ -245,43 +394,15 @@ main() {
         done < <(scan_subnet "$subnet" 2>/dev/null || true)
     done
 
-    # Show results
     if [[ ${#found[@]} -eq 0 ]]; then
         warn "No AI services found on any scanned subnet"
         exit 0
     fi
 
-    print_table "${found[@]}"
-
-    # Prompt or apply
-    if [[ "$MODE" == "--dry-run" ]]; then
-        info "Dry-run — would prompt to add ${#found[@]} service(s)"
-        exit 0
-    fi
-
-    local do_add="y"
-    if [[ "$MODE" != "--apply" ]]; then
-        echo ""
-        read -rp "Add discovered Ollama nodes to Olla config? [y/N] " do_add
-    fi
-
-    if [[ "${do_add,,}" == "y" ]]; then
-        local added=0
-        for entry in "${found[@]}"; do
-            IFS='|' read -r host port svc_type svc_name svc_ver <<< "$entry"
-            if add_to_olla "$host" "$port" "$svc_type"; then
-                (( added++ )) || true
-            fi
-        done
-        if [[ "$added" -gt 0 ]]; then
-            info "Regenerating Olla config..."
-            bash "${SCRIPT_DIR}/generate-olla-config.sh"
-            info "Restart the stack to apply: sudo systemctl restart ai-stack.service"
-        fi
-        echo ""
-        ok "Added ${added} service(s)"
+    if [[ "$MODE" == "--apply" ]]; then
+        apply_all "${found[@]}"
     else
-        info "Skipping — nothing added"
+        interactive_menu "${found[@]}"
     fi
 }
 
