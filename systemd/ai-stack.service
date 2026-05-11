@@ -1,5 +1,5 @@
 [Unit]
-Description=AI Stack (Ollama Intel Arc + LiteLLM + Olla + Retriever)
+Description=AI Stack (Ollama Intel Arc + LiteLLM + Olla + Router + Retriever)
 After=docker.service
 Requires=docker.service
 
