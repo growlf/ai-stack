@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Bitwarden/VaultWarden optional secret management
+  - `install.sh` prompts to configure during setup; installs `bw` CLI, collects API credentials, writes `BW_CLIENT_ID`/`BW_CLIENT_SECRET` to `.env`
+  - `install.sh` detects existing unlocked `bw` session, supports self-hosted VaultWarden URL, auto-generates `LITELLM_MASTER_KEY` and stores it in Bitwarden
+  - `scripts/resolve-vaultwarden.sh` rewritten: authenticates via API key or existing session, resolves `<vaultwarden:org-id/item>` placeholders in `.env`
+  - `start.sh` auto-runs `resolve-vaultwarden.sh` before starting the stack
+  - `.env.example` documents the vaultwarden placeholder format
+  - AGENTS.md updated with resolve commands and table entry
 - GitHub Actions CI workflow (docker-compose validation, shellcheck)
 - GitHub Actions Release workflow (auto-release on version tags)
 - Pull Request template
@@ -18,6 +25,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - SECURITY.md policy
 - CODE_OF_CONDUCT.md (Contributor Covenant v2.1)
 - CHANGELOG.md
+- **Retriever service** — lightweight Obsidian vault RAG replacing Khoj + PostgreSQL
+  - FastAPI + sqlite-vec (file-based vector store, no separate DB)
+  - Hybrid search: FTS5 keyword (BM25) + vector similarity, fused via RRF
+  - Watchdog live vault indexing (inotify)
+  - API-only: `POST /search`, `POST /reindex`, `GET /health`
+  - Embedded via Olla → ollama-arc (nomic-embed-text)
+- **discover-herd.sh** — mDNS + subnet scan for auto-discovery of remote Ollama nodes
+- **PLANS.md** — design document for stack simplification
+
+### Removed
+- **Open WebUI** — replaced by OpenCode (CLI + Obsidian sidebar plugin)
+- **Pipelines** — no longer needed (smart_model_router removed)
+- **Open Terminal** — no longer needed
+- **Khoj / khoj-db** — replaced by retriever service (sqlite-vec, no PostgreSQL)
+- **post-install.sh** — entirely targeted Open WebUI API
+- **tools/system_diagnostics.py** — Open WebUI tool protocol
+- **khoj-sync/** — never implemented CouchDB sync
+- All associated environment variables (WEBUI_*, PIPELINES_*, KHOJ_*, COUCHDB_*, etc.)
+
+### Changed
+- Stack reduced from 8 services to 4 (ollama-arc, litellm, olla, retriever)
+- `.env.example` slimmed down to only active configuration
+- `install.sh` updated: no pipelines deployment, no Open WebUI volume, updated completion output
+- `AGENTS.md` reflects new architecture
 
 ## [0.1.0] - 2026-04-30
 

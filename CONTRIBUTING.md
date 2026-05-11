@@ -31,10 +31,13 @@ Thank you for your interest in contributing! This project is built from real hom
    docker compose config
 
    # Lint shell scripts
-   shellcheck scripts/*.sh install.sh post-install.sh
+    shellcheck scripts/*.sh install.sh
    ```
 
-4. **Never commit real credentials.** Use placeholder values like `changeme` in examples.
+4. **Never commit real credentials.**
+   - Use `<vaultwarden:org/item>` placeholders for API keys if Bitwarden is configured
+   - Never commit a resolved `.env` file (only placeholder values should appear)
+   - Use placeholder values like `changeme` in examples
 
 5. **Open a pull request** against `main` and fill in the PR template.
 
@@ -53,7 +56,7 @@ ci: update shellcheck action to v2
 
 - Shell scripts: POSIX-compatible where possible; always pass `shellcheck`
 - Docker Compose: keep services alphabetically ordered within logical groups
-- Python (pipelines / tools): follow PEP 8; add a module-level docstring
+- Python (retriever): follow PEP 8
 
 ## Reporting security issues
 

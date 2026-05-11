@@ -31,9 +31,12 @@ if [[ ! -f .env ]]; then
   exit 1
 fi
 
-# ── 2. Generate olla.yaml from .env ──────────────────────────────────────────
+# ── 2. Resolve VaultWarden placeholders (if any) ──────────────────────
+bash "${SCRIPT_DIR}/scripts/resolve-vaultwarden.sh"
+
+# ── 3. Generate olla.yaml from .env ───────────────────────────────────
 bash "${SCRIPT_DIR}/scripts/generate-olla-config.sh"
 
-# ── 3. Start the stack ────────────────────────────────────────────────
+# ── 4. Start the stack ────────────────────────────────────────────────
 echo "→ Starting stack..."
 docker compose up "$@"

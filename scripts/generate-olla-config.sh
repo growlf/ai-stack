@@ -52,8 +52,8 @@ OLLA_LOAD_BALANCER="${OLLA_LOAD_BALANCER:-least-connections}"
 OLLA_REQUEST_LOGGING="${OLLA_REQUEST_LOGGING:-true}"
 
 # ── Collect OLLAMA_REMOTE_* entries ────────────────────────────────────────────
-declare -A REMOTE_URLS
-declare -A REMOTE_PRIORITIES
+declare -A REMOTE_URLS=()
+declare -A REMOTE_PRIORITIES=()
 
 if [[ -f "$ENV_FILE" ]]; then
   while IFS='=' read -r key val; do
@@ -61,11 +61,18 @@ if [[ -f "$ENV_FILE" ]]; then
     name="${BASH_REMATCH[1]}"
     val="${val%%#*}"; val="${val#"${val%%[![:space:]]*}"}"; val="${val%"${val##*[![:space:]]}"}"
     [[ -n "$val" ]] || continue
-    # Check for inline priority suffix: url:port:N
-    if [[ "$val" =~ ^(.*):([0-9]+)$ ]]; then
+    # Parse format: url:port[:priority]
+    if [[ "$val" =~ ^(.*:[0-9]+):([0-9]+)$ ]]; then
+      # Three-part: url:port:priority
       REMOTE_URLS["$name"]="${BASH_REMATCH[1]}"
       REMOTE_PRIORITIES["$name"]="${BASH_REMATCH[2]}"
+    elif [[ "$val" =~ ^.*:[0-9]+$ ]]; then
+      # Two-part: url:port (no explicit priority)
+      REMOTE_URLS["$name"]="$val"
+      priority_var="OLLAMA_REMOTE_${name}_PRIORITY"
+      REMOTE_PRIORITIES["$name"]="${!priority_var:-70}"
     else
+      # Bare URL: only host, no port
       REMOTE_URLS["$name"]="$val"
       priority_var="OLLAMA_REMOTE_${name}_PRIORITY"
       REMOTE_PRIORITIES["$name"]="${!priority_var:-70}"

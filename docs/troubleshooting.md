@@ -23,10 +23,8 @@ docker logs ollama-arc 2>&1 | grep -i "device\|gpu\|arc\|oneapi"
    Manual fix:
    ```bash
    ls -la /dev/dri/
-   # Find which card is Intel (vendor 0x8086)
    cat /sys/class/drm/card0/device/vendor
    cat /sys/class/drm/card1/device/vendor
-   # Update .env with the correct card
    ```
 
 2. **Container started without GPU access** — If the card node drifted and the service started before `check-arc-gpu.sh` updated `.env`:
@@ -38,105 +36,95 @@ docker logs ollama-arc 2>&1 | grep -i "device\|gpu\|arc\|oneapi"
 
 ---
 
-## Ollama not reachable from Open WebUI
+## Retriever
 
-**Symptom:** "Trouble accessing Ollama" warning in Open WebUI connections.
+### Retriever shows 0 indexed files
 
 **Check:**
 ```bash
-docker exec -it open-webui curl http://ollama-arc:11434/api/tags
+curl localhost:42000/health
+docker logs retriever --tail 20
 ```
 
-**Fix:** Verify both containers are on the `ai-net` network:
+**Common causes:**
+
+1. **Vault path missing** — Verify `RETRIEVER_VAULT_PATH` in `.env` points to a real directory that contains `.md` files.
+
+2. **Embeddings failing** — The retriever needs Olla healthy and `nomic-embed-text` pulled:
+   ```bash
+   curl localhost:40114/internal/health
+   docker exec ollama-arc ollama list | grep nomic
+   docker exec ollama-arc ollama pull nomic-embed-text:latest
+   ```
+
+3. **Vault not mounted** — Check the container:
+   ```bash
+   docker exec retriever ls /vault
+   ```
+
+---
+
+## Olla
+
+### Olla not routing correctly
+
+**Check:**
 ```bash
-docker network inspect ai-stack_ai-net | grep -A3 "Name"
+curl localhost:40114/internal/status/endpoints
+```
+
+**Fix:** Regenerate config after changing `.env`:
+```bash
+bash scripts/generate-olla-config.sh
+sudo systemctl restart ai-stack.service
 ```
 
 ---
 
-## Remote Ollama instance unreachable from tools
+## LiteLLM
 
-**Symptom:** System Diagnostics reports remote instance as unreachable, but you can ping/curl it from the host.
+### LiteLLM won't start / cloud models unavailable
 
-**Root cause:** Tools run inside the Open WebUI container's Python process. The container needs a route to your LAN.
+**Check logs:**
+```bash
+docker logs litellm --tail 30
+```
+
+**Common causes:**
+
+1. **Missing API keys** — `ANTHROPIC_API_KEY` and `GEMINI_API_KEY` must be set in `.env`. LiteLLM will start without them but cloud models won't be available.
+
+2. **Healthcheck** — LiteLLM's liveness endpoint is at `/health/liveness` (not `/health`). The healthcheck in compose uses the correct URL.
+
+---
+
+### Remote instance unreachable
+
+**Symptom:** Olla reports a remote node as unreachable.
 
 **Check:**
 ```bash
-docker exec -it open-webui python3 -c "
-import httpx, asyncio
-async def test():
-    async with httpx.AsyncClient(timeout=5) as c:
-        r = await c.get('http://YOUR_REMOTE_IP:11434/api/tags')
-        print('OK', r.status_code)
-asyncio.run(test())
-"
+curl http://192.168.1.X:11434/api/tags
 ```
 
-**Fix:** If the above fails, add `extra_hosts` to open-webui in `docker-compose.yml`:
+**Fix:** Ensure the remote host is reachable from the Docker network. If the host is on the LAN, Olla should be able to reach it. For host-local addresses, you may need `extra_hosts`:
+
 ```yaml
-open-webui:
+olla:
   extra_hosts:
     - "host.docker.internal:host-gateway"
 ```
 
 ---
 
-## Pipelines crash loop
-
-**Symptom:** `docker logs pipelines` shows repeated startup failures.
-
-**Most common cause:** A pipeline file is missing required configuration (e.g. a GitHub token).
-
-**Fix:**
-```bash
-# Find the offending pipeline
-docker logs pipelines 2>&1 | grep "ERROR\|ValueError"
-
-# Remove it
-docker exec pipelines rm -rf /app/pipelines/PROBLEM_PIPELINE.py
-docker exec pipelines rm -rf /app/pipelines/PROBLEM_PIPELINE/
-docker exec pipelines rm -rf /app/pipelines/__pycache__
-docker restart pipelines
-```
-
----
-
-## Pipeline changes not taking effect
-
-**Symptom:** Updated a `.py` file but old behaviour persists.
-
-**Cause:** Python bytecode cache (`__pycache__`) is stale.
-
-**Fix:** Always clear cache after updating pipeline files:
-```bash
-docker exec pipelines rm -rf /app/pipelines/__pycache__
-docker restart pipelines
-```
-
----
-
-## Models not showing in Open WebUI after restart
-
-**Symptom:** Chat model selector is empty after system reboot.
-
-**Cause:** Open WebUI caches the model list and the cache can go stale.
-
-**Fix:**
-```bash
-docker restart open-webui
-```
-Then refresh the browser.
-
----
-
 ## `docker compose down` fails with "invalid hostPort"
 
-**Cause:** A port mapping in the compose file has a typo (e.g. `" :8000"` instead of `"8000:8000"`).
+**Cause:** A port mapping in the compose file has a typo.
 
-**Fix:** Stop containers by name since compose can't parse the file:
+**Fix:** Stop containers by name:
 ```bash
-docker stop open-webui open-terminal pipelines ollama-arc
-docker rm open-webui open-terminal pipelines ollama-arc
+docker stop ollama-arc litellm olla retriever
+docker rm ollama-arc litellm olla retriever
 ```
 Then fix the typo in `docker-compose.yml` and restart.
 
@@ -154,13 +142,3 @@ journalctl -xeu ai-stack.service
 1. Docker not ready yet — the `After=docker.service` dependency usually handles this, but on slow systems add `sleep 5` to ExecStartPre.
 2. GPU pre-flight failed — check `check-arc-gpu.sh` output in the journal.
 3. Port conflict — another service is using one of your configured ports.
-
----
-
-## open-webui volume issues after migration
-
-If you moved from a separate compose setup, the `open-webui` volume is marked `external: true` and must exist before the stack starts:
-
-```bash
-docker volume create open-webui
-```
