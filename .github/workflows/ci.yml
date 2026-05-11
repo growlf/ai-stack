@@ -23,6 +23,9 @@ jobs:
           docker compose version
 
       - name: Validate docker-compose.yml syntax
+        env:
+          LITELLM_MASTER_KEY: ci-validation-key
+          STACK_USER: ci-user
         run: docker compose config --quiet
 
       - name: Lint shell scripts
