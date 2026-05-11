@@ -77,7 +77,7 @@ services:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-not-set}
-      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY:-sk-changeme-set-in-env}
+      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY:?LITELLM_MASTER_KEY must be set in .env — run scripts/generate-keys.sh}
     command: ["--config", "/app/config.yaml", "--port", "4000"]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:4000/health/liveness?key=${LITELLM_MASTER_KEY:-sk-local-admin}')"]
