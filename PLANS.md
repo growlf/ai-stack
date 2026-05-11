@@ -205,3 +205,134 @@ If the new setup doesn't work:
 2. Revert docker-compose.yml to previous version
 3. Recreate the `open-webui` external volume
 4. Re-pull previous `.env`
+
+---
+
+# Plan: Multi-system install with cluster roles
+
+## Status: Proposal — pre-approval
+
+---
+
+## Summary
+
+Add three installation modes to `install.sh`: **Start Cluster**, **Join Cluster**, and **Standalone**. The installer becomes re-runnable so any node can change its role later. `Join` mode scans the LAN for existing clusters and offers a selection menu.
+
+## Motivation
+
+- Current install assumes a single, self-contained node
+- Users with multiple machines (homelab, office LAN) manually copy `OLLAMA_REMOTE_*` entries between `.env` files
+- No standard way to bootstrap a multi-node cluster or join an existing one
+- The `discover-network.sh` script exists but is manual and post-install only
+- Re-running the installer to change roles should be safe and guided
+
+## Design
+
+### Core concept: `CLUSTER_ROLE` in `.env`
+
+A new `.env` variable tracks the node's role:
+
+```
+CLUSTER_ROLE=standalone|seed|member
+CLUSTER_NAME=ai-cluster       # human label
+CLUSTER_ID=<uuid>             # generated once per seed, stable reference
+CLUSTER_NODES=[]              # tracked on seed only
+```
+
+- **standalone**: current behavior — no cluster participation (default)
+- **seed**: first node — originates the cluster, hosts the node registry
+- **member**: joins an existing cluster — appears in seed's registry
+
+### Mode selection flow (re-runnable)
+
+```
+install.sh
+├── [.env not found] → preflight error (as today)
+├── [.env found, no CLUSTER_ROLE] → prompt: Start Cluster | Join Cluster | Standalone
+│   ├── Start Cluster → writes CLUSTER_ROLE=seed + CLUSTER_ID + CLUSTER_NAME
+│   ├── Join Cluster → scan LAN → select cluster → writes CLUSTER_ROLE=member + remote entries
+│   └── Standalone → writes CLUSTER_ROLE=standalone, proceeds as today
+├── [.env found, CLUSTER_ROLE exists] → prompt: Keep role or change?
+│   ├── Keep → run normal install (idempotent)
+│   └── Change → re-run the mode selection above
+└── (rest of installer: preflight, volumes, systemd, models, opencode)
+```
+
+### Join Cluster — LAN discovery mechanism
+
+Discovery uses the existing `scripts/discover-network.sh` logic:
+1. Scan LAN subnet (via `ip route`) for hosts on port 11434 (Ollama)
+2. For each reachable host, query `http://host:11434/api/tags` and check `ai-stack.aio-config` model tag (a marker model seed nodes pull)
+3. Seeds also expose `http://host:11434/.ai-stack-manifest` → JSON with `{cluster_id, cluster_name, node_count, models}`
+4. Present a numbered menu of discovered clusters
+5. User selects → installer writes `OLLAMA_REMOTE_<hostname>=http://selected-host:11434` to `.env` and registers this node's Ollama with the seed
+
+Alternative/simpler approach (the seed runs no extra HTTP endpoint):
+1. Scan LAN for Ollama hosts via discover-network.sh
+2. Detect which ones have `CLUSTER_ROLE=seed` by checking if the host itself has an ai-stack running (check for `.env` marker via SSH or the Olla health endpoint)
+3. This is too invasive — skip.
+
+**Chosen approach**: seed pulls a well-known model tag `ai-stack-cluster:latest` (a tiny placeholder ~1MB). Joiners scan for hosts with this model. This is zero-infrastructure — no extra endpoints, no SSH.
+
+Alternatively, Olla's `/internal/status/endpoints` endpoint exposed on port 40114 already lists configured remotes. If a seed's Olla is reachable (port 40114), joiners can check it for `cluster` metadata. But we can also add a lightweight `GET /cluster/manifest` to Olla (if we extend it) or to a separate sidecar.
+
+**Simplest v1 approach**: a small shell function in `install.sh` that:
+1. Scans the local subnet on port 11434 (via `/dev/tcp` or `nmap` if available)
+2. Tries `wget -q -O - http://$host:$port/api/tags | grep -q ai-stack-cluster` 
+3. Shows matches as a menu
+4. No infra changes — just uses Ollama's existing API
+
+### Start Cluster — seed node registration
+
+1. Generate `CLUSTER_ID` via `uuidgen`
+2. Prompt for `CLUSTER_NAME` (default: hostname)
+3. Pull `ai-stack-cluster:latest` marker model so joiners can detect this node
+4. Write `CLUSTER_ROLE=seed` + `CLUSTER_ID` + `CLUSTER_NAME` to `.env`
+5. Rest of install proceeds normally
+
+### Re-runnable role changes
+
+A new `scripts/change-cluster-role.sh` script or inline function:
+1. Reads current `CLUSTER_ROLE`
+2. Offers migration path:
+   - **seed → standalone**: Remove marker model, stop advertising, keep remotes as-is (optional)
+   - **seed → member**: Demote to member, join another cluster
+   - **member → seed**: Promote to seed, pull marker, existing remotes become cluster nodes
+   - **member → standalone**: Remove remote entries, keep local
+   - **standalone → seed/member**: As above
+
+### File changes
+
+| File | Change |
+|---|---|
+| `install.sh` | Top-level mode selection menu; new functions for scan, join, seed init; re-run detection |
+| `.env.example` | Add `CLUSTER_ROLE`, `CLUSTER_NAME`, `CLUSTER_ID` (commented out w/ defaults) |
+| `scripts/change-cluster-role.sh` | **New** — role migration script invoked by re-running install or standalone |
+| `scripts/discover-network.sh` | Minor: export `scan_lan_ollama()` as a library function so install.sh can source it |
+| `PLANS.md` | This plan |
+
+### Environment variables (new)
+
+```
+# ── Cluster mode ──────────────────────────────────────────────────────
+# CLUSTER_ROLE=standalone       # standalone|seed|member
+# CLUSTER_NAME=                 # (optional) human label
+# CLUSTER_ID=                   # auto-generated on seed init
+```
+
+### Developer commands (supplement to AGENTS.md)
+
+```bash
+# Re-run installer to change role
+./install.sh
+
+# Or use the standalone script
+./scripts/change-cluster-role.sh
+```
+
+### Rollback
+
+1. Set `CLUSTER_ROLE=standalone` in `.env`
+2. Remove marker model: `docker exec ollama-arc ollama rm ai-stack-cluster:latest`
+3. Remove any auto-added `OLLAMA_REMOTE_*` entries from `.env`
+4. Re-run `./scripts/generate-olla-config.sh` and restart the stack
