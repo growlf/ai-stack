@@ -1,0 +1,34 @@
+# docker-compose.arc.yml — Intel Arc iGPU overlay
+#
+# Use with:
+#   docker compose -f docker-compose.yml -f docker-compose.arc.yml up -d
+#
+# Requires:
+#   - Intel Arc GPU (checked by scripts/check-arc-gpu.sh)
+#   - GPU_CARD and GPU_RENDER set in .env (see .env.example)
+#   - OLLAMA_SHM_SIZE and OLLAMA_MEM_LIMIT sized for your GPU (default 16gb/32g)
+#
+# See docs/hardware/arc.md for setup guide and model recommendations.
+#
+# Source image: https://github.com/Ava-AgentOne/ollama-intel
+# Replaces intelanalytics/ipex-llm-inference-cpp-xpu (archived Jan 28, 2026)
+
+services:
+  ollama:
+    image: ghcr.io/ava-agentone/ollama-intel:latest
+    container_name: ollama
+    environment:
+      - DEVICE=Arc
+      - OLLAMA_INTEL_GPU=true
+      - ONEAPI_DEVICE_SELECTOR=level_zero:0
+      - ZES_ENABLE_SYSMAN=1
+      - OLLAMA_DEBUG=1
+    devices:
+      # GPU card node — may be card0 or card1 depending on boot order.
+      # Run scripts/check-arc-gpu.sh to find the correct device paths.
+      - ${GPU_CARD:-/dev/dri/card1}:${GPU_CARD:-/dev/dri/card1}
+      - ${GPU_RENDER:-/dev/dri/renderD128}:${GPU_RENDER:-/dev/dri/renderD128}
+    shm_size: '${OLLAMA_SHM_SIZE:-16gb}'
+    mem_limit: '${OLLAMA_MEM_LIMIT:-32g}'
+    healthcheck:
+      start_period: 60s   # Arc iGPU needs extra time for driver init

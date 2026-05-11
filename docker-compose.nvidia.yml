@@ -1,0 +1,30 @@
+# docker-compose.nvidia.yml — NVIDIA GPU overlay
+#
+# Use with:
+#   docker compose -f docker-compose.yml -f docker-compose.nvidia.yml up -d
+#
+# Requires:
+#   - NVIDIA GPU with CUDA support
+#   - NVIDIA Container Toolkit installed:
+#     https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html
+#   - nvidia-smi working on the host
+#   - OLLAMA_SHM_SIZE and OLLAMA_MEM_LIMIT sized for your GPU (default 8gb/16g)
+#
+# See docs/hardware/nvidia.md for setup guide and model recommendations.
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    shm_size: '${OLLAMA_SHM_SIZE:-8gb}'
+    mem_limit: '${OLLAMA_MEM_LIMIT:-16g}'
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
