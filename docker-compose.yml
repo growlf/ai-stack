@@ -139,7 +139,26 @@ services:
     networks:
       - ai-net
 
-# ─── Volumes ──────────────────────────────────────────────────────────────────
+  # ── Smart Model Router — content-based model selection ──────────────────
+  # Sits between OpenCode and Olla. Classifies queries and auto-selects the
+  # best local model. Cloud model requests pass through unchanged.
+  # Point OpenCode's Olla provider at http://localhost:40115.
+  router:
+    build: ./router
+    container_name: router
+    restart: unless-stopped
+    ports:
+      - "40115:40115"
+    environment:
+      - OLLA_URL=http://olla:40114
+      - LISTEN_HOST=0.0.0.0
+      - LISTEN_PORT=40115
+    depends_on:
+      - olla
+    networks:
+      - ai-net
+
+# ── Volumes ──────────────────────────────────────────────────────────────────
 volumes:
   olla-logs:
   retriever-data:

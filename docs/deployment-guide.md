@@ -56,25 +56,12 @@ The installer automates:
 
 ### 4. Configure OpenCode
 
-OpenCode is the primary AI interface. Configure it to use the stack:
+OpenCode is the primary AI interface. The installer creates a global config at `~/.opencode/config.json` with all providers:
 
-```bash
-opencode --provider olla --base-url http://localhost:40114
-```
+- **Olla** → Smart Router (`:40115`) — auto-routes local model requests
+- **LiteLLM** (`:4000`) — direct access to Claude, Gemini
 
-Or add to your OpenCode config to include all providers:
-
-```yaml
-providers:
-  olla:
-    type: openai
-    base_url: http://localhost:40114/v1
-    api_key: none
-  litellm:
-    type: openai
-    base_url: http://localhost:4000/v1
-    api_key: your-litellm-key
-```
+The Olla provider now routes through the Smart Model Router, which classifies your query and selects the best model for the task.
 
 ### 5. Verify the retriever
 
@@ -100,6 +87,7 @@ OpenCode (CLI + Obsidian plugin)
 
 | Service | Port | Purpose |
 |---------|------|---------|
+| Smart Router | 40115 | Content-based model routing (auto-selects best local model) |
 | Olla | 40114 | LLM router / load balancer |
 | LiteLLM | 4000 | Cloud model proxy (Claude, Gemini) |
 | Ollama (arc) | 11434 | Local LLM runner (Intel Arc iGPU) |

@@ -283,20 +283,32 @@ if command -v opencode &>/dev/null; then
       "npm": "@ai-sdk/openai-compatible",
       "name": "Olla (local Ollama cluster)",
       "options": {
-        "baseURL": "http://localhost:40114/olla/ollama/v1"
+        "baseURL": "http://localhost:40115/v1"
       },
       "models": {
         "qwen3.5:14b": {
-          "name": "Qwen 3.5 14B (local)"
+          "name": "Qwen 3.5 14B (default)"
         },
         "gemma4:27b": {
-          "name": "Gemma 4 27B (local)"
+          "name": "Gemma 4 27B (heavy lifting)"
         },
         "mistral-small3.2:24b": {
-          "name": "Mistral Small 3.2 24B (local)"
+          "name": "Mistral Small 3.2 24B (tool calling)"
+        },
+        "qwen2.5:14b": {
+          "name": "Qwen 2.5 14B (diagnostics)"
+        },
+        "qwen2.5-coder:14b": {
+          "name": "Qwen 2.5 Coder 14B (code)"
+        },
+        "deepseek-r1:14b": {
+          "name": "DeepSeek R1 14B (reasoning)"
+        },
+        "gemma3:12b": {
+          "name": "Gemma 3 12B (longform/logs)"
         },
         "nomic-embed-text": {
-          "name": "Nomic Embed Text (local)"
+          "name": "Nomic Embed Text (embeddings)"
         }
       }
     },

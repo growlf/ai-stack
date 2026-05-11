@@ -13,6 +13,7 @@ Built and documented through real-world homelab experience on Intel Arc hardware
 | **Ollama (ava-agentone/ollama-intel)** | LLM inference with Intel Arc iGPU acceleration via OneAPI/SYCL |
 | **LiteLLM** | Cloud API gateway (Claude, Gemini) |
 | **Olla** | Unified LLM router with load balancing |
+| **Smart Router** | Content-based model selection (OpenCode → router → Olla) |
 | **Retriever** | Lightweight Obsidian vault RAG (sqlite-vec + FTS5, hybrid search) |
 | **OpenCode** | Primary AI interface — CLI tool + Obsidian sidebar plugin |
 
@@ -49,7 +50,7 @@ chmod +x install.sh scripts/check-arc-gpu.sh
 #   - Prompt to install OpenCode CLI + Bun
 #   - Auto-install the OpenCode Obsidian plugin (growlf/opencode-obsidian)
 #   - Prompt to configure Bitwarden/VaultWarden for secret management
-#   - Start the stack (ollama-arc, litellm, olla, retriever)
+#   - Start the stack (ollama-arc, litellm, olla, router, retriever)
 #   - Prompt to pull models
 ```
 
@@ -99,10 +100,10 @@ ai-stack/
 | `gemma4:27b` | Heavy lifting, large context, complex analysis |
 | `mistral-small3.2:24b` | Strong function calling, 128K context |
 | `qwen3.5:14b` | Improved reasoning, tool calling (recommended default) |
-| `qwen2.5:14b` | Tool calling, diagnostics, sysadmin |
-| `qwen2.5-coder:14b` | Scripts, configs, code |
-| `deepseek-r1:14b` | Complex reasoning, root cause analysis |
-| `gemma3:12b` | Log analysis, summaries, documentation |
+| `qwen2.5:14b` | Tool calling, diagnostics, sysadmin (router default for diagnostics) |
+| `qwen2.5-coder:14b` | Scripts, configs, code (router default for code) |
+| `deepseek-r1:14b` | Complex reasoning, root cause analysis (router default for reasoning) |
+| `gemma3:12b` | Log analysis, summaries, documentation (router default for longform) |
 | `nomic-embed-text` | Embeddings / RAG |
 
 See **[docs/model-guide.md](docs/model-guide.md)** for details.
