@@ -196,6 +196,66 @@ detect_lan_subnets() {
     printf '%s\n' "${subnets[@]}"
 }
 
+# ── Resolve Olla endpoint names to IPs via DNS ──────────────────────────
+# Queries the Olla endpoint list API, then resolves each name via VPN DNS.
+# Arguments: olla_host olla_port
+# Returns: lines of "host|port|type|details" for resolved + verified endpoints
+resolve_olla_endpoints() {
+    local host="$1" port="$2"
+    local base="http://${host}:${port}"
+
+    local resp
+    resp=$(curl -sf --max-time 5 "${base}/internal/status/endpoints" 2>/dev/null || true)
+    [[ -z "$resp" ]] && return
+
+    local names
+    names=$(echo "$resp" | python3 -c "
+import sys,json
+d=json.load(sys.stdin)
+for e in d.get('endpoints',[]):
+    name=e.get('name','')
+    if name and name != 'litellm-cloud':
+        print(name)
+" 2>/dev/null || true)
+    [[ -z "$names" ]] && return
+
+    local dns_server="" dns_domain=""
+    local vpn_iface
+    vpn_iface=$(ip route show table all 2>/dev/null | grep -E "dev (wg|tun|wt|tailscale)" | awk '{print $3}' | head -1 || true)
+    if [[ -n "$vpn_iface" ]]; then
+        dns_server=$(resolvectl dns "$vpn_iface" 2>/dev/null | awk '{print $NF}' || true)
+        dns_domain=$(resolvectl domain "$vpn_iface" 2>/dev/null | awk '{print $NF}' || true)
+    fi
+    [[ -z "$dns_server" ]] && dns_server=$(grep -m1 '^nameserver' /etc/resolv.conf 2>/dev/null | awk '{print $2}' || true)
+
+    local has_dig=false
+    command -v dig &>/dev/null && has_dig=true
+
+    local results=()
+    while IFS= read -r name; do
+        [[ -z "$name" ]] && continue
+        local resolved=""
+        if [[ "$has_dig" == "true" && -n "$dns_server" ]]; then
+            resolved=$(dig +short "$name" @"$dns_server" 2>/dev/null | head -1 || true)
+            if [[ -z "$resolved" && -n "$dns_domain" ]]; then
+                resolved=$(dig +short "${name}.${dns_domain}" @"$dns_server" 2>/dev/null | head -1 || true)
+            fi
+            if [[ -z "$resolved" && -n "$dns_domain" ]]; then
+                resolved=$(dig +short "bms-${name}.${dns_domain}" @"$dns_server" 2>/dev/null | head -1 || true)
+            fi
+        fi
+        if [[ -n "$resolved" ]]; then
+            local result
+            result=$(discover_and_label "$resolved" "11434" || true)
+            if [[ -n "$result" ]]; then
+                results+=("$result")
+                ok "  ${resolved}:11434 = $(echo "$result" | cut -d'|' -f3) (Olla endpoint '${name}')"
+            fi
+        fi
+    done <<< "$names"
+    printf '%s\n' "${results[@]}"
+}
+
 # ── List OLLAMA_REMOTE_* currently in .env ───────────────────────────────
 list_existing() {
     grep '^OLLAMA_REMOTE_' "$ENV_FILE" 2>/dev/null || true
@@ -482,7 +542,32 @@ main() {
         done
     fi
 
-    # ── Step 3: Auto-detect LAN ───────────────────────────────────────
+    # ── Step 3: Resolve Olla endpoint names via DNS ────────────────────
+    # If any Olla instances were found, try resolving their named endpoints
+    # through the VPN DNS server to discover additional hosts.
+    local olla_done="" olla_resolved=()
+    for entry in "${all_found[@]}"; do
+        local ehost eport etype
+        ehost=$(echo "$entry" | cut -d'|' -f1)
+        eport=$(echo "$entry" | cut -d'|' -f2)
+        etype=$(echo "$entry" | cut -d'|' -f3)
+        if [[ "$etype" == "olla" ]]; then
+            local key="${ehost}:${eport}"
+            if echo "$olla_done" | grep -q "${key} "; then
+                continue
+            fi
+            olla_done="${olla_done} ${key} "
+            info "Resolving Olla endpoints from ${ehost}:${eport}..."
+            while IFS= read -r olla_entry; do
+                [[ -n "$olla_entry" ]] && olla_resolved+=("$olla_entry")
+            done < <(resolve_olla_endpoints "$ehost" "$eport" || true)
+        fi
+    done
+    for entry in "${olla_resolved[@]}"; do
+        all_found+=("$entry")
+    done
+
+    # ── Step 4: Auto-detect LAN ────────────────────────────────────────
     info "Auto-detecting LAN subnets..."
     local lan_subnets=()
     while IFS= read -r subnet; do
@@ -512,7 +597,7 @@ main() {
         done
     fi
 
-    # ── Step 4: Deduplicate ───────────────────────────────────────────
+    # ── Step 5: Deduplicate ───────────────────────────────────────────
     declare -a final=()
     while IFS= read -r entry; do
         final+=("$entry")
@@ -526,7 +611,7 @@ main() {
     echo ""
     info "Found ${#final[@]} unique service(s)"
 
-    # ── Step 5: Present and act ───────────────────────────────────────
+    # ── Step 6: Present and act ───────────────────────────────────────
     if [[ "$MODE" == "--apply" ]]; then
         apply_all "${final[@]}"
     else
