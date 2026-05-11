@@ -53,7 +53,7 @@ services:
     shm_size: '${OLLAMA_SHM_SIZE:-2gb}'
     mem_limit: '${OLLAMA_MEM_LIMIT:-8g}'
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:11434/"]
+      test: ["CMD", "ollama", "list"]
       interval: 15s
       timeout: 10s
       retries: 5
