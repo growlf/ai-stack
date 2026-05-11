@@ -16,7 +16,7 @@
 #   OLLAMA_REMOTE_NAS=http://192.168.1.51:11434
 #
 # Fixed nodes (always present, not configurable):
-#   priority 100 — ollama-arc   (local Intel Arc iGPU)
+#   priority 100 — ollama   (local Ollama node — Arc, NVIDIA, or CPU depending on overlay)
 #   priority  50 — litellm      (cloud gateway: Claude, Gemini)
 #
 # Advanced tuning (optional .env vars):
@@ -82,7 +82,7 @@ fi
 
 echo "→ Generating olla.yaml..."
 if [[ ${#REMOTE_URLS[@]} -eq 0 ]]; then
-  echo "   (no OLLAMA_REMOTE_* entries found — only local Arc node + LiteLLM)"
+  echo "   (no OLLAMA_REMOTE_* entries found — only local Ollama node + LiteLLM)"
 fi
 
 # ── Write olla.yaml ────────────────────────────────────────────────────────────
@@ -108,9 +108,9 @@ discovery:
   static:
     endpoints:
 
-      # ── Local Intel Arc iGPU node (priority 100) ─────────────────
-      - url: "http://ollama-arc:11434"
-        name: "ollama-arc"
+      # ── Local Ollama node (priority 100) ─────────────────
+      - url: "http://ollama:11434"
+        name: "ollama"
         type: "ollama"
         priority: 100
         check_interval: 15s
