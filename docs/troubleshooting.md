@@ -13,7 +13,7 @@ Lessons learned from building this stack. Check here before opening issues.
 **Check:**
 ```bash
 ls -la /dev/dri/
-docker logs ollama-arc 2>&1 | grep -i "device\|gpu\|arc\|oneapi"
+docker logs ollama 2>&1 | grep -i "device\|gpu\|arc\|oneapi"
 ```
 
 **Common causes:**
@@ -53,8 +53,8 @@ docker logs retriever --tail 20
 2. **Embeddings failing** — The retriever needs Olla healthy and `nomic-embed-text` pulled:
    ```bash
    curl localhost:40114/internal/health
-   docker exec ollama-arc ollama list | grep nomic
-   docker exec ollama-arc ollama pull nomic-embed-text:latest
+   docker exec ollama ollama list | grep nomic
+   docker exec ollama ollama pull nomic-embed-text:latest
    ```
 
 3. **Vault not mounted** — Check the container:
@@ -123,8 +123,8 @@ olla:
 
 **Fix:** Stop containers by name:
 ```bash
-docker stop ollama-arc litellm olla retriever
-docker rm ollama-arc litellm olla retriever
+docker stop ollama litellm olla retriever
+docker rm ollama litellm olla retriever
 ```
 Then fix the typo in `docker-compose.yml` and restart.
 
