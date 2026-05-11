@@ -27,9 +27,10 @@ sudo systemctl start|stop|restart ai-stack.service
 ./scripts/discover-herd.sh --dry-run    # scan only
 
 # Discover AI services across all networks (LAN + VPN)
-./scripts/discover-network.sh              # scan, prompt before writing
-./scripts/discover-network.sh --apply      # scan and write without prompt
-./scripts/discover-network.sh --dry-run    # scan only
+./scripts/discover-network.sh                         # interactive
+./scripts/discover-network.sh 10.10.0.201:11434       # seed(s) as args, prompts
+./scripts/discover-network.sh --apply                 # add all discovered
+./scripts/discover-network.sh --dry-run               # scan only
 
 # Check retriever status
 curl localhost:42000/health
