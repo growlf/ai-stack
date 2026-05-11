@@ -19,7 +19,7 @@ A step-by-step guide for setting up the AI Stack on Linux with Intel Arc iGPU.
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/yourusername/ai-stack.git
+git clone https://github.com/growlf/ai-stack.git
 cd ai-stack
 ```
 
@@ -48,6 +48,9 @@ bash install.sh
 The installer automates:
 - Creating required Docker volumes
 - Installing the systemd service (`ai-stack.service`)
+- Installing OpenCode CLI + Bun (optional prompt)
+- Auto-installing the OpenCode Obsidian plugin (`growlf/opencode-obsidian`) into `.obsidian/`
+- Prompting to configure Bitwarden/VaultWarden for secret management
 - Starting the full stack
 - Prompting you to pull models
 

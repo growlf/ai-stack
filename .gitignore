@@ -1,6 +1,7 @@
 # ── secrets & local config ────────────────────────────────────────────────────
 .env
 .env.backup*
+.env.example.backup*
 .env.*.backup*
 tmp/
 

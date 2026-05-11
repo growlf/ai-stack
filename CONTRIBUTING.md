@@ -34,7 +34,10 @@ Thank you for your interest in contributing! This project is built from real hom
     shellcheck scripts/*.sh install.sh
    ```
 
-4. **Never commit real credentials.** Use placeholder values like `changeme` in examples.
+4. **Never commit real credentials.**
+   - Use `<vaultwarden:org/item>` placeholders for API keys if Bitwarden is configured
+   - Never commit a resolved `.env` file (only placeholder values should appear)
+   - Use placeholder values like `changeme` in examples
 
 5. **Open a pull request** against `main` and fill in the PR template.
 

@@ -8,7 +8,7 @@ export default tool({
     include_content: tool.schema.boolean().default(true).describe("Include full chunk content in results"),
   },
   async execute(args) {
-    const resp = await fetch("http://retriever:42000/search", {
+    const resp = await fetch("http://localhost:42000/search", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ query: args.query, top_k: args.top_k }),
@@ -37,7 +37,7 @@ export const per_source = tool({
     top_k: tool.schema.number().default(5).describe("Number of results to return (default 5)"),
   },
   async execute(args) {
-    const resp = await fetch("http://retriever:42000/search", {
+    const resp = await fetch("http://localhost:42000/search", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ query: args.query, top_k: args.top_k * 2 }),

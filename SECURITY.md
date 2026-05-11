@@ -28,6 +28,8 @@ You can expect an acknowledgement within **72 hours** and a resolution timeline 
 - **Never commit real credentials.** Use `.env` (which is git-ignored) for secrets; `.env.example` must only contain placeholder values.
 - **Never commit backup files containing secrets.** Files like `.env.backup`, `.env.backup*`, or timestamped backups (e.g., `.env.example.backup-20260503-014323`) must never be committed. Always add backup file patterns to `.gitignore`.
 
+- **Use Bitwarden/VaultWarden for secret management (recommended).** The `install.sh` script prompts to set it up. API keys are stored as `<vaultwarden:org/item>` placeholders in `.env` and resolved at runtime via `resolve-vaultwarden.sh`. This avoids storing secrets in plaintext.
+
 - **Network exposure.** By default, services bind to all interfaces. In production, put a reverse proxy (e.g. nginx, Caddy) with TLS in front and restrict direct port access.
 - **Default passwords.** Change all `changeme` defaults in your `.env` before exposing any service to a network.
 

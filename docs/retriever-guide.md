@@ -91,17 +91,16 @@ Returns immediately — reindexing runs in the background.
 
 ## Using with OpenCode
 
-OpenCode can call the retriever as a tool. Configure it in your OpenCode settings to include search results as context for the AI.
+OpenCode calls the retriever as a native tool via the project-level `.opencode/tools/vault-search.ts`. This tool is automatically available when you run `opencode` from the project directory.
 
-Example OpenCode tool configuration:
+Two tools are provided:
 
-```json
-{
-  "name": "vault-search",
-  "description": "Search your Obsidian vault for relevant notes",
-  "command": "curl -s -X POST localhost:42000/search -H 'Content-Type: application/json' -d '{\"query\": \"$QUERY\"}'"
-}
-```
+- **`vault-search`** — search the entire vault for notes matching a query
+- **`vault-search_per_source`** — search within a specific file or subdirectory
+
+Both tools call `POST /search` on the retriever API and return file paths, content snippets, and relevance scores.
+
+The tools are pre-configured in `.opencode/config.json` and auto-approved by default. No manual setup is needed.
 
 ---
 
