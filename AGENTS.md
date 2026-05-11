@@ -1,6 +1,6 @@
 # AGENTS.md — ai-stack
 
-This is a Docker Compose-based AI stack for **Intel Arc iGPU on Linux**, managed via systemd. The stack provides local LLM inference (ollama-arc), cloud API routing (LiteLLM), unified routing/load balancing (Olla), and Obsidian vault RAG (retriever). The primary AI interface is **OpenCode** (CLI + Obsidian sidebar plugin).
+This is a Docker Compose-based AI stack managed via systemd. The stack provides local LLM inference (ollama), cloud API routing (LiteLLM), unified routing/load balancing (Olla), and Obsidian vault RAG (retriever). The primary AI interface is **OpenCode** (CLI + Obsidian sidebar plugin).
 
 ## Developer commands
 
@@ -58,7 +58,7 @@ All traffic flows through **Olla** (port 40114) as the unified LLM router:
 OpenCode (CLI + Obsidian plugin)
   ├── tool: retriever :42000  →  sqlite-vec + FTS5 hybrid search over vault
   ├── provider: Olla :40115   →  Smart Router (auto-selects local model)
-  │                           →  ollama-arc :11434 (Intel Arc iGPU)
+  │                           →  ollama :11434 (local LLM)
   │                           →  OLLAMA_REMOTE_* nodes (LAN, optional)
   └── provider: LiteLLM :4000 →  Claude (Anthropic), Gemini (Google)
 ```
@@ -67,7 +67,7 @@ OpenCode (CLI + Obsidian plugin)
 
 | Directory/File | Purpose |
 |---|---|
-| `docker-compose.yml` | Core stack: ollama-arc, litellm, olla, router, retriever |
+| `docker-compose.yml` | Core stack: ollama, litellm, olla, router, retriever |
 | `install.sh` | Preflight → create volumes → install systemd → start stack → pull models (prompts for Bitwarden setup) |
 | `retriever/` | Obsidian vault RAG: FastAPI + sqlite-vec + watchdog. Hybrid search via FTS5 + vector embeddings. |
 | `scripts/generate-olla-config.sh` | Reads `OLLAMA_REMOTE_*` from `.env` → writes `proxy/olla.yaml` |
@@ -94,7 +94,7 @@ The retriever service replaces Khoj + PostgreSQL with a lightweight, API-only se
 - **Vector store**: sqlite-vec (embedded SQLite extension, file-based, no separate DB)
 - **Keyword search**: SQLite FTS5 (BM25 scoring)
 - **Hybrid search**: Reciprocal Rank Fusion (RRF) combining vector + keyword results
-- **Embeddings**: `nomic-embed-text` via Olla → ollama-arc
+- **Embeddings**: `nomic-embed-text` via Olla → ollama
 - **Indexing**: Full scan on startup, then watchdog (inotify) for live changes
 - **API**: `POST /search`, `POST /reindex`, `GET /health`
 
