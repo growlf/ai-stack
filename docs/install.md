@@ -1,0 +1,257 @@
+# Installation
+
+This guide walks you through setting up ai-stack from scratch. It's written for people who are new to local AI and Docker, but experienced users can skip the explanatory sections.
+
+**Time to complete:** 30–60 minutes (most of that is downloading model files)
+
+---
+
+## Before you start
+
+### What you need
+
+- **Linux** — Ubuntu 22.04+ or Fedora 38+ recommended; any modern distro works
+- **Docker Engine 24+** and the Docker Compose v2 plugin
+- **Git**
+- **32 GB RAM** recommended (16 GB minimum — limits you to smaller models)
+- **50 GB free disk space** minimum (models are large; 100 GB+ is comfortable)
+
+Don't have Docker? See [Installing Docker](#installing-docker) below.
+
+### What you'll have at the end
+
+- A local AI assistant accessible through OpenCode (terminal CLI and Obsidian plugin)
+- Automatic model routing (the stack picks the right model for each task)
+- Optional: your Obsidian vault searchable via natural language
+- Optional: free-tier Claude and Gemini available as cloud fallbacks
+
+---
+
+## Step 1: Clone the repository
+
+```bash
+git clone https://github.com/growlf/ai-stack.git
+cd ai-stack
+```
+
+---
+
+## Step 2: Configure your environment
+
+```bash
+cp .env.example .env
+```
+
+Open `.env` in a text editor. The key settings to check:
+
+```bash
+nano .env   # or: code .env  or: vim .env
+```
+
+**Required settings:**
+
+| Variable | What to set | Example |
+|----------|------------|---------|
+| `STACK_USER` | Your Linux username | `yourname` |
+| `RETRIEVER_VAULT_PATH` | Full path to your Obsidian vault, or any folder of Markdown files | `/home/yourname/Documents/notes` |
+
+**Security settings — generate these, don't leave defaults:**
+
+```bash
+# Generate a strong random password for the database
+openssl rand -base64 32
+# Paste the result as LITELLM_MASTER_KEY in .env
+```
+
+Set `LITELLM_MASTER_KEY` to the generated value. The installer can also set this up via Bitwarden if you prefer centralized secret management — see [docs/secret-management.md](secret-management.md).
+
+**Optional — cloud API keys:**
+
+Leave these blank if you only want local models (which is fine):
+
+```bash
+ANTHROPIC_API_KEY=    # Claude (claude.ai/settings → API Keys)
+GEMINI_API_KEY=       # Gemini (aistudio.google.com → API Keys)
+```
+
+Free-tier accounts for both services work here. See [docs/cloud-models.md](cloud-models.md) for details.
+
+---
+
+## Step 3: Run the installer
+
+```bash
+chmod +x install.sh
+./install.sh
+```
+
+The installer is interactive. It will prompt you through:
+
+1. **GPU detection** — checks for Intel Arc, Nvidia, or AMD GPU and configures accordingly
+2. **OpenCode CLI** — installs the OpenCode terminal interface (requires Bun runtime; installer handles this)
+3. **Obsidian plugin** — installs the OpenCode Obsidian sidebar plugin if you use Obsidian
+4. **Secret management** — optional Bitwarden/VaultWarden setup for secure API key storage
+5. **Stack startup** — brings up all services via Docker Compose
+6. **Model download** — prompts you to pull recommended models
+
+**The model download takes a while.** A 14B model is ~8–9 GB. On a decent connection this takes 5–15 minutes per model. The installer will prompt you for which models to pull.
+
+---
+
+## Step 4: Verify the stack is running
+
+Once the installer finishes, check that all services are healthy:
+
+```bash
+# Check the LLM router (Olla)
+curl http://localhost:40114/internal/health
+
+# Check local model runner (Ollama)
+curl http://localhost:11434/api/tags
+
+# Check the retriever (vault search)
+curl http://localhost:42000/health
+
+# Check the smart router
+curl http://localhost:40115/health
+```
+
+Each should return a JSON response. If any return an error, see [Troubleshooting](#troubleshooting) below.
+
+Check which models are loaded:
+```bash
+docker exec ollama ollama list
+```
+
+---
+
+## Step 5: Configure OpenCode
+
+The installer creates a config file at `~/.opencode/config.json`. Open a new terminal and try:
+
+```bash
+opencode
+```
+
+If OpenCode opens and you can type a message, the stack is working.
+
+The default provider routes through the smart router, which sends your request to the best available local model. You should get a response within a few seconds (longer if the model isn't loaded yet — first load takes 5–30 seconds depending on model size and hardware).
+
+---
+
+## Step 6: Test your vault search (optional)
+
+If you set `RETRIEVER_VAULT_PATH`, the retriever will index your notes on startup. Check the index status:
+
+```bash
+curl http://localhost:42000/health
+```
+
+Look for `indexed_files` — if it's 0, indexing is either in progress or the path is wrong. Indexing a large vault can take a few minutes.
+
+Test a search:
+```bash
+curl -X POST http://localhost:42000/search \
+  -H 'Content-Type: application/json' \
+  -d '{"query": "something you know is in your notes", "top_k": 5}'
+```
+
+---
+
+## Automatic startup
+
+The installer creates a systemd service that starts ai-stack automatically on boot:
+
+```bash
+# Check status
+sudo systemctl status ai-stack.service
+
+# Stop the stack
+sudo systemctl stop ai-stack.service
+
+# Start the stack
+sudo systemctl start ai-stack.service
+```
+
+---
+
+## Installing Docker
+
+If you don't have Docker installed:
+
+**Ubuntu / Debian:**
+```bash
+# Add Docker's official repository
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+# Install Docker Engine and Compose plugin
+sudo apt update
+sudo apt install docker-ce docker-ce-cli containerd.io docker-compose-plugin
+
+# Add your user to the docker group (avoids needing sudo for docker commands)
+sudo usermod -aG docker $USER
+newgrp docker
+```
+
+**Fedora:**
+```bash
+sudo dnf install docker docker-compose-plugin
+sudo systemctl enable --now docker
+sudo usermod -aG docker $USER
+newgrp docker
+```
+
+Verify:
+```bash
+docker --version       # should be 24+ 
+docker compose version # should be v2.x
+```
+
+---
+
+## Troubleshooting
+
+### "docker: permission denied"
+
+You need to add your user to the docker group:
+```bash
+sudo usermod -aG docker $USER
+```
+Then log out and back in, or run `newgrp docker`.
+
+### Services won't start
+
+Check logs for the failing service:
+```bash
+docker compose logs --tail=30
+```
+
+### GPU not detected
+
+For Intel Arc: the `check-arc-gpu.sh` script runs automatically and configures the correct device node. If you get GPU errors:
+```bash
+ls /dev/dri/
+bash scripts/check-arc-gpu.sh
+```
+
+See [docs/hardware/arc.md](hardware/arc.md) for Intel Arc-specific guidance.
+
+### Model downloads are slow
+
+Model files are large (8–16 GB each). This is normal. You can monitor progress:
+```bash
+docker exec ollama ollama list
+```
+
+### OpenCode command not found
+
+The installer uses Bun to install OpenCode globally. If `opencode` isn't found:
+```bash
+export PATH="$HOME/.bun/bin:$PATH"
+```
+Add this to your `~/.bashrc` or `~/.zshrc` to make it permanent.
+
+### More help
+
+→ [docs/troubleshooting.md](troubleshooting.md) — comprehensive issue guide
