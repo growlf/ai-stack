@@ -42,8 +42,11 @@ OLLA_YAML = PROJECT_DIR / "proxy" / "olla.yaml"
 OLLAMA_PORT = 11434
 OLLA_PORT = 40114
 APOSTLE_PORT = int(os.environ.get("APOSTLE_PORT", "40116"))
-OLLAMA_URL = os.environ.get("OLLAMA_URL", f"http://localhost:{OLLAMA_PORT}")
-OLLA_URL   = os.environ.get("OLLA_URL",   f"http://localhost:{OLLA_PORT}")
+_ollama_host = os.environ.get("OLLAMA_HOST", "")
+OLLAMA_URL = (
+    f"http://{_ollama_host}:{OLLAMA_PORT}" if _ollama_host
+    else os.environ.get("OLLAMA_URL", f"http://localhost:{OLLAMA_PORT}")
+)
 
 # ── Colour ──────────────────────────────────────────────────────────────────
 def c(text, code):

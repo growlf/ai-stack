@@ -153,19 +153,18 @@ services:
   # Status:    http://localhost:40116/apostle/v1/status
   # Cluster:   http://localhost:40116/apostle/v1/cluster
   apostle:
-    build: ./apostle
+    build:
+      context: .
+      dockerfile: scripts/Dockerfile.apostle
     container_name: apostle
     restart: unless-stopped
     ports:
       - "${APOSTLE_PORT:-40116}:40116"
     volumes:
-      - ./scripts:/app/scripts:ro
       - ./.env:/app/.env:ro
     environment:
-      - OLLAMA_URL=http://ollama:11434
-      - OLLA_URL=http://olla:40114
+      - OLLAMA_HOST=ollama
       - APOSTLE_PORT=40116
-      - APOSTLE_HOST=0.0.0.0
       - APOSTLE_ENV_FILE=/app/.env
     depends_on:
       olla:
