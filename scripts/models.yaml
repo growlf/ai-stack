@@ -44,13 +44,6 @@ models:
     priority: low
     role: light-code
 
-  - name: qwen3.5:14b
-    min_ram_gb: 10
-    disk_gb: 9
-    tools: true
-    priority: high
-    role: general
-
   - name: qwen2.5:14b
     min_ram_gb: 10
     disk_gb: 9

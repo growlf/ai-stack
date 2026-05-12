@@ -33,7 +33,7 @@ curl -fsSL https://ollama.com/install.sh | sh
 sudo systemctl enable --now ollama
 
 # Pull models on the remote machine
-ollama pull qwen3.5:14b
+ollama pull llama3.1:8b
 ollama pull qwen2.5-coder:14b
 ```
 

@@ -10,7 +10,7 @@
 | `qwen2.5-coder:14b` | ~8.3 GB | yes | Code, scripts, configs, debugging |
 | `deepseek-r1:14b` | ~8.3 GB | **no** | Complex reasoning, root cause analysis — no tool support |
 | `gemma3:12b` | ~7.8 GB | **no** | Long log analysis, summaries, documentation |
-| `gemma3:27b` | ~17 GB | **no** | Heavy lifting, large context — load on demand |
+| `llama3.1:8b` | ~4.9 GB | yes | Tool calling, fallback |
 | `nomic-embed-text` | ~274 MB | — | Embeddings for RAG (retriever service) |
 
 ## Tool support
@@ -36,7 +36,7 @@ Run `apostle.py catalog` to see what's recommended for the current node based on
 
 **`deepseek-r1:14b`** — Chain-of-thought reasoning. Thinks before responding, typically adding 20–60 seconds to response time. Worth it for complex root cause analysis or architectural decisions. Not suitable for quick queries or anything requiring tool calls.
 
-**`gemma3:27b`** — Requires ~17 GB GPU memory. On systems with 32 GB RAM, loading this model alongside others will cause page-outs. Pull on demand rather than keeping resident. Use for tasks that need large context or complex analysis where smaller models underperform.
+**`qwen3.5:27b`** — Requires ~17 GB GPU memory. On systems with 32 GB RAM, loading this model alongside others will cause page-outs. Pull on demand rather than keeping resident. Use for tasks that need large context or complex analysis where smaller models underperform.
 
 **`qwen2.5-coder:14b`** — Understands YAML, Dockerfiles, systemd units, and bash idioms better than the base `qwen2.5` model. Prefer this for anything involving file structure, shell commands, or configuration.
 
@@ -69,7 +69,8 @@ docker exec ollama ollama pull qwen2.5-coder:14b
 docker exec ollama ollama pull qwen2.5:14b
 docker exec ollama ollama pull deepseek-r1:14b
 docker exec ollama ollama pull gemma3:12b
+docker exec ollama ollama pull llama3.1:8b
 docker exec ollama ollama pull nomic-embed-text:latest
-```
 
-`gemma3:27b` is optional — pull only if your system has 48 GB+ RAM or you have a specific need for it.
+docker exec ollama ollama pull qwen3.5:27b  # optional — needs 48 GB+ RAM
+```
