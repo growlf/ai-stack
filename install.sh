@@ -61,6 +61,11 @@ fi
 source "${SCRIPT_DIR}/.env"
 
 STACK_USER="${STACK_USER:-$(whoami)}"
+if [[ "$STACK_USER" == "yourusername" ]]; then
+    STACK_USER=$(whoami)
+    sed -i "s|^STACK_USER=.*|STACK_USER=${STACK_USER}|" "${SCRIPT_DIR}/.env"
+    info "Updated STACK_USER to ${STACK_USER} in .env"
+fi
 INSTALL_DIR="${INSTALL_DIR:-${SCRIPT_DIR}}"
 
 # ─── GPU selection ────────────────────────────────────────────────────────────
