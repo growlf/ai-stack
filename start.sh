@@ -43,12 +43,15 @@ fi
 
 # ── 2. Resolve VaultWarden placeholders (if any) ──────────────────────
 if grep -v '^[[:space:]]*#' "${SCRIPT_DIR}/.env" 2>/dev/null | grep -q '<vaultwarden:'; then
-  if [[ -z "${BW_SESSION:-}" ]] && [[ -z "${VAULT_MASTER_PASSWORD:-}" ]]; then
-    echo "  Your .env has VaultWarden secrets — unlock first:"
-    echo "    export BW_SESSION=\$(bw unlock --raw)"
-    echo "    ./start.sh"
+  if [[ -n "${BW_SESSION:-}" ]] || [[ -n "${VAULT_MASTER_PASSWORD:-}" ]]; then
+    bash "${SCRIPT_DIR}/scripts/resolve-vaultwarden.sh"
+  else
+    echo "  [WARN] .env has VaultWarden placeholders but vault is locked — starting without resolving."
+    echo "         Secrets sourced from Bitwarden will be empty until resolved. To fix:"
+    echo "           export BW_SESSION=\$(bw unlock --raw)"
+    echo "           bash scripts/resolve-vaultwarden.sh"
+    echo "           sudo systemctl restart ai-stack.service"
   fi
-  bash "${SCRIPT_DIR}/scripts/resolve-vaultwarden.sh"
 fi
 
 # ── 3. Generate olla.yaml from .env ───────────────────────────────────
