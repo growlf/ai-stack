@@ -10,8 +10,10 @@
 #   - User in docker group
 #
 # Usage:
-#   cp .env.example .env && nano .env   # configure first
-#   ./install.sh
+#   ./install.sh              # .env is auto-created from .env.example on first run
+#   ./install.sh --cpu        # force CPU-only mode
+#   ./install.sh --arc        # force Intel Arc overlay
+#   ./install.sh --nvidia     # force NVIDIA overlay
 
 set -euo pipefail
 
@@ -29,7 +31,20 @@ header()  { echo -e "\n${BOLD}${BLUE}═══ $* ═══${RESET}\n"; }
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 if [[ ! -f "${SCRIPT_DIR}/.env" ]]; then
-    error ".env not found. Run: cp .env.example .env && nano .env"
+    if [[ ! -f "${SCRIPT_DIR}/.env.example" ]]; then
+        error ".env.example not found. Is this a complete ai-stack clone?"
+    fi
+    info "No .env found — creating from .env.example..."
+    cp "${SCRIPT_DIR}/.env.example" "${SCRIPT_DIR}/.env"
+    sed -i "s|^STACK_USER=.*|STACK_USER=$(whoami)|" "${SCRIPT_DIR}/.env"
+    LITELLM_KEY=$(python3 -c "import secrets; print('sk-local-' + secrets.token_hex(16))" 2>/dev/null \
+        || openssl rand -hex 24 | awk '{print "sk-local-" $0}')
+    sed -i "s|^LITELLM_MASTER_KEY=.*|LITELLM_MASTER_KEY=${LITELLM_KEY}|" "${SCRIPT_DIR}/.env"
+    success "Created .env — STACK_USER=$(whoami), LITELLM_MASTER_KEY auto-generated."
+    info "Local models work immediately. For cloud models (Claude/Gemini), add API keys:"
+    info "  echo 'ANTHROPIC_API_KEY=sk-ant-...' >> .env"
+    info "  echo 'GEMINI_API_KEY=AI...'         >> .env"
+    echo ""
 fi
 
 # Resolve VaultWarden placeholders before sourcing
@@ -66,15 +81,13 @@ if [[ -z "$GPU_TYPE" ]]; then
         GPU_TYPE="nvidia"
         info "NVIDIA GPU detected — using docker-compose.nvidia.yml overlay."
     elif ls /dev/dri/card* &>/dev/null 2>&1; then
-        for card in /dev/dri/card*; do
-            cardnum="${card##*card}"
-            vendor=$(cat "/sys/class/drm/card${cardnum}/device/vendor" 2>/dev/null || echo "")
-            if [[ "$vendor" == "0x8086" ]]; then
-                GPU_TYPE="arc"
-                info "Intel Arc GPU detected — using docker-compose.arc.yml overlay."
-                break
-            fi
-        done
+        # Only select Arc overlay for genuine Intel Arc GPUs (Alchemist/Battlemage).
+        # Iris, UHD, and older Intel iGPUs share vendor 0x8086 but don't support
+        # the IPEX-LLM stack used by docker-compose.arc.yml.
+        if command -v lspci &>/dev/null && lspci 2>/dev/null | grep -iq "Intel.*Arc"; then
+            GPU_TYPE="arc"
+            info "Intel Arc GPU detected — using docker-compose.arc.yml overlay."
+        fi
     fi
     if [[ -z "$GPU_TYPE" ]]; then
         GPU_TYPE="cpu"
