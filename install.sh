@@ -10,8 +10,10 @@
 #   - User in docker group
 #
 # Usage:
-#   cp .env.example .env && nano .env   # configure first
-#   ./install.sh
+#   ./install.sh              # .env is auto-created from .env.example on first run
+#   ./install.sh --cpu        # force CPU-only mode
+#   ./install.sh --arc        # force Intel Arc overlay
+#   ./install.sh --nvidia     # force NVIDIA overlay
 
 set -euo pipefail
 
@@ -34,11 +36,11 @@ if [[ ! -f "${SCRIPT_DIR}/.env" ]]; then
     fi
     info "No .env found — creating from .env.example..."
     cp "${SCRIPT_DIR}/.env.example" "${SCRIPT_DIR}/.env"
-    # Auto-generate LITELLM_MASTER_KEY — no editor needed
+    sed -i "s|^STACK_USER=.*|STACK_USER=$(whoami)|" "${SCRIPT_DIR}/.env"
     LITELLM_KEY=$(python3 -c "import secrets; print('sk-local-' + secrets.token_hex(16))" 2>/dev/null \
         || openssl rand -hex 24 | awk '{print "sk-local-" $0}')
     sed -i "s|^LITELLM_MASTER_KEY=.*|LITELLM_MASTER_KEY=${LITELLM_KEY}|" "${SCRIPT_DIR}/.env"
-    success "Created .env with auto-generated LITELLM_MASTER_KEY."
+    success "Created .env — STACK_USER=$(whoami), LITELLM_MASTER_KEY auto-generated."
     info "Local models work immediately. For cloud models (Claude/Gemini), add API keys:"
     info "  echo 'ANTHROPIC_API_KEY=sk-ant-...' >> .env"
     info "  echo 'GEMINI_API_KEY=AI...'         >> .env"
