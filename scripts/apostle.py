@@ -42,6 +42,8 @@ OLLA_YAML = PROJECT_DIR / "proxy" / "olla.yaml"
 OLLAMA_PORT = 11434
 OLLA_PORT = 40114
 APOSTLE_PORT = int(os.environ.get("APOSTLE_PORT", "40116"))
+OLLAMA_URL = os.environ.get("OLLAMA_URL", f"http://localhost:{OLLAMA_PORT}")
+OLLA_URL   = os.environ.get("OLLA_URL",   f"http://localhost:{OLLA_PORT}")
 
 # ── Colour ──────────────────────────────────────────────────────────────────
 def c(text, code):
@@ -226,7 +228,7 @@ def discover_peers():
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 def local_models():
-    data = ollama_api("localhost", "/api/tags")
+    data = ollama_api(OLLAMA_URL, "/api/tags")
     if data and "models" in data:
         return {m["name"]: m for m in data["models"]}
     return {}
