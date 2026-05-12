@@ -54,10 +54,10 @@ echo "→ Resolving <vaultwarden:...> placeholders in .env..."
 
 # ── Check bw CLI ──────────────────────────────────────────────────────────
 if ! command -v bw &>/dev/null; then
-    echo "✗ Bitwarden CLI (bw) not found."
-    echo "  Install: npm install -g @bitwarden/cli"
-    echo "  Or: https://bitwarden.com/help/cli/"
-    exit 1
+    echo "  Bitwarden CLI (bw) not found — skipping VaultWarden resolution."
+    echo "  VaultWarden placeholders in .env will remain unresolved."
+    echo "  To install bw: sudo npm install -g @bitwarden/cli"
+    exit 0
 fi
 
 # ── Configure server URL (self-hosted VaultWarden) ────────────────────────
