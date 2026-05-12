@@ -82,12 +82,6 @@ if [[ -z "$GPU_TYPE" ]]; then
     fi
 fi
 
-case "$GPU_TYPE" in
-    arc)    COMPOSE_FILES="-f docker-compose.yml -f docker-compose.arc.yml" ;;
-    nvidia) COMPOSE_FILES="-f docker-compose.yml -f docker-compose.nvidia.yml" ;;
-    cpu)    COMPOSE_FILES="-f docker-compose.yml" ;;
-esac
-
 OLLAMA_CONTAINER="ollama"
 
 # Persist GPU_TYPE to .env so start.sh and systemd use the same overlay
