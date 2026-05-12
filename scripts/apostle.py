@@ -550,7 +550,7 @@ def _run_sync_cycle(manual=False):
 
             if not peer_src and not manual:
                 info = next((m for m in cat if normalize_name(m["name"]) == model), {})
-                if info.get("min_ram_gb", 0) > MAX_AUTO_PULL_GB and not _is_offhours():
+                if info.get("disk_gb", 0) > MAX_AUTO_PULL_GB and not _is_offhours():
                     with _sync_lock:
                         _sync_state["skipped"].append(
                             f"{model} (>{MAX_AUTO_PULL_GB}GB, deferred to off-hours)"
@@ -647,6 +647,8 @@ _DASHBOARD_HTML = (
     b"<div class=\"l\">Models</div></div>\n"
     b"  <div class=\"stat\"><div class=\"v\" id=\"sh\">-</div>"
     b"<div class=\"l\">Healthy</div></div>\n"
+    b"  <div class=\"stat\"><div class=\"v\" id=\"sy\">—</div>"
+    b"<div class=\"l\">Sync</div></div>\n"
     b"  <div id=\"dot\" title=\"Live stream\"></div>\n"
     b"</div>\n"
     b"<div id=\"wrap\"><svg id=\"g\"></svg></div>\n"
@@ -758,6 +760,17 @@ _DASHBOARD_HTML = (
     b"  try{update(JSON.parse(e.data));}catch(ex){}\n"
     b"};\n"
     b"es.onerror=()=>document.getElementById('dot').classList.add('stale');\n"
+    b"function updateSync(){\n"
+    b"  fetch('/apostle/v1/sync').then(r=>r.json()).then(s=>{\n"
+    b"    const el=document.getElementById('sy');\n"
+    b"    if(s.running)el.textContent='...';\n"
+    b"    else if(s.last_run){\n"
+    b"      const d=new Date(s.last_run*1000);\n"
+    b"      el.textContent=d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});\n"
+    b"    }else el.textContent='—';\n"
+    b"  }).catch(()=>{});\n"
+    b"}\n"
+    b"updateSync();setInterval(updateSync,30000);\n"
     b"</script>\n</body>\n</html>\n"
 )
 
@@ -804,6 +817,7 @@ def _cluster_snapshot():
             "total_models": len(all_models),
             "healthy_peers": sum(1 for p in peers if p.get("status") == "healthy"),
         },
+        "sync": dict(_sync_state),
         "timestamp": time.time(),
     }
 
@@ -947,7 +961,9 @@ def cmd_serve(port=None):
     print(f"  {dim('Cluster:')}   http://localhost:{port}/apostle/v1/cluster")
     print(f"  {dim('Manifest:')}  http://localhost:{port}/apostle/v1/manifest/<model>")
     print(f"  {dim('Health:')}    http://localhost:{port}/health")
+    print(f"  {dim('Sync:')}      http://localhost:{port}/apostle/v1/sync")
     print(f"\n  {dim('Press Ctrl+C to stop')}\n")
+    _start_sync_daemon()
     try:
         server.serve_forever()
     except KeyboardInterrupt:
