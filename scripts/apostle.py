@@ -454,11 +454,20 @@ class _ApostleHandler(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _html(self, body: bytes, status=200):
+        self.send_response(status)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def do_GET(self):
         url_path = self.path.split("?")[0].rstrip("/")
         url_path = url_path.replace("%3A", ":").replace("%3a", ":")
 
-        if url_path == "/apostle/v1/status":
+        if url_path in ("", "/", "/ui"):
+            self._html(_DASHBOARD_HTML)
+        elif url_path == "/apostle/v1/status":
             self._handle_status()
         elif url_path == "/apostle/v1/cluster":
             self._handle_cluster()
