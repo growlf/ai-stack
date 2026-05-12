@@ -50,6 +50,12 @@ fi
 # Resolve VaultWarden placeholders before sourcing
 if grep -q '<vaultwarden:' "${SCRIPT_DIR}/.env" 2>/dev/null; then
     info "Resolving VaultWarden placeholders in .env..."
+    if [[ -z "${BW_SESSION:-}" ]] && [[ -z "${VAULT_MASTER_PASSWORD:-}" ]]; then
+        warn "Your .env has VaultWarden secrets but no active session was found."
+        warn "To unlock your vault before running the installer:"
+        warn "  export BW_SESSION=\$(bw unlock --raw)"
+        warn "  ./install.sh"
+    fi
     if [[ -f "${SCRIPT_DIR}/scripts/resolve-vaultwarden.sh" ]]; then
         bash "${SCRIPT_DIR}/scripts/resolve-vaultwarden.sh"
     else
