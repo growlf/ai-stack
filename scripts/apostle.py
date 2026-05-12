@@ -42,6 +42,7 @@ OLLA_YAML = PROJECT_DIR / "proxy" / "olla.yaml"
 OLLAMA_PORT = 11434
 OLLA_PORT = 40114
 APOSTLE_PORT = int(os.environ.get("APOSTLE_PORT", "40116"))
+APOSTLE_EVENTS_INTERVAL = float(os.environ.get("APOSTLE_EVENTS_INTERVAL", "5"))
 _ollama_host = os.environ.get("OLLAMA_HOST", "")
 OLLAMA_URL = (
     f"http://{_ollama_host}:{OLLAMA_PORT}" if _ollama_host
@@ -447,36 +448,213 @@ def update_olla_config(peers):
 # 7. HTTP API Server  (apostle serve)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-_DASHBOARD_HTML = b"""<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Apostle Node</title>
-<style>
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:system-ui,sans-serif;background:#0d1117;color:#c9d1d9;padding:2rem}
-h1{font-size:1.25rem;font-weight:600;margin-bottom:1.5rem;color:#e6edf3}
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:1rem;margin-bottom:2rem}
-.card{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:1rem}
-.card h2{font-size:.8rem;text-transform:uppercase;letter-spacing:.05em;color:#8b949e;margin-bottom:.5rem}
-.card p{font-size:1.1rem;font-weight:600;color:#58a6ff}
-a{color:#58a6ff;text-decoration:none}.api{list-style:none}
-.api li{margin:.4rem 0}.api a{font-family:monospace;font-size:.9rem}
-.api a:hover{text-decoration:underline}
-footer{margin-top:2rem;font-size:.8rem;color:#484f58}
-</style></head>
-<body>
-<h1>&#127776; Apostle Node</h1>
-<p style="color:#8b949e;margin-bottom:1.5rem">Node status API. Full cluster visualization at
-<a href="http://localhost:40115/gestalt/ui">router:40115/gestalt/ui</a>.</p>
-<h2 style="font-size:.8rem;text-transform:uppercase;letter-spacing:.05em;color:#8b949e;margin-bottom:.75rem">API Endpoints</h2>
-<ul class="api">
-  <li><a href="/apostle/v1/status">/apostle/v1/status</a> &mdash; this node: hardware, profile, models</li>
-  <li><a href="/apostle/v1/cluster">/apostle/v1/cluster</a> &mdash; cluster view: all peers + model inventory</li>
-  <li><a href="/health">/health</a> &mdash; liveness probe</li>
-</ul>
-<footer>growlf/ai-stack &mdash; apostle serve</footer>
-</body></html>
-"""
+_DASHBOARD_HTML = (
+    b"<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n"
+    b"<meta charset=\"utf-8\">\n"
+    b"<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n"
+    b"<title>Apostle &#8212; Cluster</title>\n"
+    b"<script src=\"https://d3js.org/d3.v7.min.js\"></script>\n"
+    b"<style>\n"
+    b"*{box-sizing:border-box;margin:0;padding:0}\n"
+    b"body{background:#0d1117;color:#c9d1d9;font-family:system-ui,sans-serif;"
+    b"height:100vh;display:flex;flex-direction:column;overflow:hidden}\n"
+    b"#hdr{display:flex;align-items:center;gap:2rem;padding:.75rem 1.5rem;"
+    b"background:#161b22;border-bottom:1px solid #30363d;flex-shrink:0}\n"
+    b"#hdr h1{font-size:1rem;font-weight:600;color:#e6edf3;white-space:nowrap}\n"
+    b".stat{text-align:center}\n"
+    b".stat .v{font-size:1.5rem;font-weight:700;color:#58a6ff;line-height:1}\n"
+    b".stat .l{font-size:.65rem;text-transform:uppercase;letter-spacing:.05em;"
+    b"color:#8b949e;margin-top:.15rem}\n"
+    b"#dot{width:8px;height:8px;border-radius:50%;background:#3fb950;margin-left:auto;"
+    b"flex-shrink:0;transition:background .3s}\n"
+    b"#dot.stale{background:#f85149}\n"
+    b"#wrap{flex:1;overflow:hidden;position:relative}\n"
+    b"svg{width:100%;height:100%}\n"
+    b".node-host circle{stroke-width:2;cursor:pointer}\n"
+    b".local circle{fill:#152a1e;stroke:#3fb950}\n"
+    b".healthy circle{fill:#1c2433;stroke:#58a6ff}\n"
+    b".unreachable circle{fill:#2d1c1c;stroke:#f85149}\n"
+    b".node-model circle{fill:#21262d;stroke:#6e7681;stroke-width:1}\n"
+    b".node-host text,.node-model text{text-anchor:middle;dominant-baseline:central;"
+    b"pointer-events:none}\n"
+    b".node-host text{font-size:11px;fill:#e6edf3}\n"
+    b".node-model text{font-size:9px;fill:#8b949e}\n"
+    b".link{stroke:#30363d;stroke-opacity:.5}\n"
+    b"#tip{position:absolute;top:0;left:0;background:#161b22;border:1px solid #30363d;"
+    b"border-radius:6px;padding:.6rem .9rem;font-size:.8rem;pointer-events:none;"
+    b"opacity:0;transition:opacity .15s;max-width:260px;line-height:1.5}\n"
+    b"#tip h3{color:#e6edf3;margin-bottom:.3rem;font-size:.85rem}\n"
+    b"#tip p{color:#8b949e}\n"
+    b".ok{color:#3fb950}.warn{color:#d29922}.bad{color:#f85149}\n"
+    b"</style>\n</head>\n<body>\n"
+    b"<div id=\"hdr\">\n"
+    b"  <h1>&#127776; Apostle Cluster</h1>\n"
+    b"  <div class=\"stat\"><div class=\"v\" id=\"sn\">-</div>"
+    b"<div class=\"l\">Nodes</div></div>\n"
+    b"  <div class=\"stat\"><div class=\"v\" id=\"sm\">-</div>"
+    b"<div class=\"l\">Models</div></div>\n"
+    b"  <div class=\"stat\"><div class=\"v\" id=\"sh\">-</div>"
+    b"<div class=\"l\">Healthy</div></div>\n"
+    b"  <div id=\"dot\" title=\"Live stream\"></div>\n"
+    b"</div>\n"
+    b"<div id=\"wrap\"><svg id=\"g\"></svg></div>\n"
+    b"<div id=\"tip\"></div>\n"
+    b"<script>\n"
+    b"const svg=d3.select('#g');\n"
+    b"const tip=document.getElementById('tip');\n"
+    b"let sim,W,H;\n"
+    b"function resize(){\n"
+    b"  const el=document.getElementById('wrap');\n"
+    b"  W=el.clientWidth;H=el.clientHeight;\n"
+    b"  svg.attr('viewBox',`0 0 ${W} ${H}`);\n"
+    b"  if(sim)sim.force('center',d3.forceCenter(W/2,H/2)).alpha(.3).restart();\n"
+    b"}\n"
+    b"window.addEventListener('resize',resize);resize();\n"
+    b"function toGraph(d){\n"
+    b"  const nodes=[],links=[];\n"
+    b"  function host(id,label,status,hw,models,prof){\n"
+    b"    nodes.push({id,type:'host',label,status,hw:hw||{},"
+    b"models:models||{local:[],missing:[]},prof:prof||'?'});\n"
+    b"  }\n"
+    b"  function model(id,label,status,hostId){\n"
+    b"    nodes.push({id,type:'model',label,status,hostId});\n"
+    b"    links.push({source:hostId,target:id});\n"
+    b"  }\n"
+    b"  const L=d.local;\n"
+    b"  host('__local',L.hostname,'local',L.hardware,L.models,L.profile);\n"
+    b"  (L.models.local||[]).forEach(m=>model('lm:'+m,m.split(':')[0],'local','__local'));\n"
+    b"  (d.peers||[]).forEach(p=>{\n"
+    b"    const pid='p:'+p.hostname;\n"
+    b"    host(pid,p.hostname,p.status,p.apostle&&p.apostle.hardware,\n"
+    b"      p.apostle&&p.apostle.models||{local:p.models||[]},\n"
+    b"      p.apostle&&p.apostle.profile);\n"
+    b"    (p.models||[]).forEach(m=>model('pm:'+pid+':'+m,m.split(':')[0],p.status,pid));\n"
+    b"  });\n"
+    b"  return {nodes,links};\n"
+    b"}\n"
+    b"function render(graph){\n"
+    b"  svg.selectAll('*').remove();\n"
+    b"  const g=svg.append('g');\n"
+    b"  svg.call(d3.zoom().scaleExtent([.2,4]).on('zoom',e=>g.attr('transform',e.transform)));\n"
+    b"  sim=d3.forceSimulation(graph.nodes)\n"
+    b"    .force('link',d3.forceLink(graph.links).id(d=>d.id)\n"
+    b"      .distance(d=>d.target.type==='model'?80:180).strength(.7))\n"
+    b"    .force('charge',d3.forceManyBody().strength(d=>d.type==='host'?-350:-90))\n"
+    b"    .force('center',d3.forceCenter(W/2,H/2))\n"
+    b"    .force('collide',d3.forceCollide(d=>d.type==='host'?50:20));\n"
+    b"  const linkSel=g.append('g').selectAll('line').data(graph.links).join('line')"
+    b".attr('class','link');\n"
+    b"  const nodeSel=g.append('g').selectAll('g').data(graph.nodes).join('g')\n"
+    b"    .attr('class',d=>`node-${d.type} ${d.status}`)\n"
+    b"    .call(d3.drag()\n"
+    b"      .on('start',(e,d)=>{if(!e.active)sim.alphaTarget(.3).restart();"
+    b"d.fx=d.x;d.fy=d.y;})\n"
+    b"      .on('drag',(e,d)=>{d.fx=e.x;d.fy=e.y;})\n"
+    b"      .on('end',(e,d)=>{if(!e.active)sim.alphaTarget(0);d.fx=null;d.fy=null;}))\n"
+    b"    .on('mouseover',showTip)\n"
+    b"    .on('mouseout',()=>{tip.style.opacity=0;});\n"
+    b"  nodeSel.append('circle').attr('r',d=>d.type==='host'?34:13);\n"
+    b"  nodeSel.filter(d=>d.type==='host').append('text').text(d=>{\n"
+    b"    const s=d.label;return s.length>12?s.slice(0,11)+'\\u2026':s;\n"
+    b"  });\n"
+    b"  nodeSel.filter(d=>d.type==='model').append('text').attr('dy','.35em').text(d=>{\n"
+    b"    const s=d.label;return s.length>10?s.slice(0,9)+'\\u2026':s;\n"
+    b"  });\n"
+    b"  sim.on('tick',()=>{\n"
+    b"    linkSel.attr('x1',d=>d.source.x).attr('y1',d=>d.source.y)\n"
+    b"           .attr('x2',d=>d.target.x).attr('y2',d=>d.target.y);\n"
+    b"    nodeSel.attr('transform',d=>`translate(${d.x},${d.y})`);\n"
+    b"  });\n"
+    b"}\n"
+    b"function showTip(e,d){\n"
+    b"  const wrap=document.getElementById('wrap').getBoundingClientRect();\n"
+    b"  if(d.type==='model'){\n"
+    b"    tip.innerHTML=`<h3>${d.label}</h3><p>Host: "
+    b"${d.hostId==='__local'?'(this node)':d.hostId.slice(2)}</p>`;\n"
+    b"  }else{\n"
+    b"    const hw=d.hw||{};const miss=(d.models.missing||[]).length;\n"
+    b"    const cnt=(d.models.local||[]).length;\n"
+    b"    tip.innerHTML=`<h3>${d.label}</h3>\n"
+    b"      <p>Profile: ${d.prof}</p>\n"
+    b"      <p>RAM: ${hw.ram_total_gb||'?'}GB total / ${hw.ram_avail_gb||'?'}GB free</p>\n"
+    b"      <p>Models: <span class=\\\"ok\\\">${cnt} loaded</span>"
+    b"${miss?' <span class=\\\"warn\\\">'+miss+' missing</span>':''}</p>\n"
+    b"      <p>Status: <span class=\\\"${d.status==='local'||d.status==='healthy'?"
+    b"'ok':'bad'}\\\">${d.status}</span></p>`;\n"
+    b"    if(hw.gpu&&hw.gpu.length)tip.innerHTML+=`<p>GPU: ${hw.gpu[0]}</p>`;\n"
+    b"  }\n"
+    b"  let tx=e.clientX-wrap.left+14,ty=e.clientY-wrap.top+14;\n"
+    b"  if(tx+270>W)tx-=284;if(ty+120>H)ty-=130;\n"
+    b"  tip.style.left=tx+'px';tip.style.top=ty+'px';tip.style.opacity=1;\n"
+    b"}\n"
+    b"function update(data){\n"
+    b"  document.getElementById('sn').textContent="
+    b"data.cluster&&data.cluster.node_count!=null?data.cluster.node_count:'-';\n"
+    b"  document.getElementById('sm').textContent="
+    b"data.cluster&&data.cluster.total_models!=null?data.cluster.total_models:'-';\n"
+    b"  document.getElementById('sh').textContent="
+    b"data.cluster&&data.cluster.healthy_peers!=null?data.cluster.healthy_peers:'-';\n"
+    b"  document.getElementById('dot').classList.remove('stale');\n"
+    b"  render(toGraph(data));\n"
+    b"}\n"
+    b"fetch('/apostle/v1/cluster').then(r=>r.json()).then(update).catch(()=>{});\n"
+    b"const es=new EventSource('/apostle/v1/events');\n"
+    b"let staleT;\n"
+    b"es.onmessage=e=>{\n"
+    b"  clearTimeout(staleT);\n"
+    b"  staleT=setTimeout(()=>document.getElementById('dot').classList.add('stale'),20000);\n"
+    b"  try{update(JSON.parse(e.data));}catch(ex){}\n"
+    b"};\n"
+    b"es.onerror=()=>document.getElementById('dot').classList.add('stale');\n"
+    b"</script>\n</body>\n</html>\n"
+)
+
+def _cluster_snapshot():
+    hw = introspect()
+    cat = load_catalog() if MODELS_YAML.exists() else []
+    desired = select_models(cat, hw) if cat else []
+    current = local_models()
+    peers = discover_peers()
+    desired_names = {normalize_name(m["name"]) for m in desired}
+    all_models: set = set(current.keys())
+    peer_nodes = []
+    for p in peers:
+        node = {
+            "hostname": p.get("host", ""),
+            "url": p.get("url", ""),
+            "models": p.get("models", []),
+            "status": p.get("status", "unknown"),
+            "apostle": None,
+        }
+        try:
+            aurl = f"http://{p['host']}:{APOSTLE_PORT}/apostle/v1/status"
+            resp = urllib.request.urlopen(aurl, timeout=3)
+            node["apostle"] = json.loads(resp.read().decode())
+        except (urllib.error.URLError, json.JSONDecodeError, OSError):
+            pass
+        peer_nodes.append(node)
+        all_models.update(p.get("models", []))
+    return {
+        "local": {
+            "hostname": socket.gethostname(),
+            "profile": profile(hw),
+            "hardware": hw,
+            "models": {
+                "desired": [m["name"] for m in desired],
+                "local": list(current.keys()),
+                "missing": sorted(desired_names - set(current.keys())),
+            },
+            "status": "local",
+        },
+        "peers": peer_nodes,
+        "cluster": {
+            "node_count": 1 + len(peers),
+            "total_models": len(all_models),
+            "healthy_peers": sum(1 for p in peers if p.get("status") == "healthy"),
+        },
+        "timestamp": time.time(),
+    }
+
 
 class _ApostleHandler(http.server.BaseHTTPRequestHandler):
     def log_message(self, format, *args):
@@ -508,6 +686,8 @@ class _ApostleHandler(http.server.BaseHTTPRequestHandler):
             self._handle_status()
         elif url_path == "/apostle/v1/cluster":
             self._handle_cluster()
+        elif url_path == "/apostle/v1/events":
+            self._handle_sse()
         elif url_path.startswith("/apostle/v1/manifest/"):
             self._handle_manifest(url_path[len("/apostle/v1/manifest/"):])
         elif url_path in ("/health", "/apostle/health"):
@@ -535,59 +715,24 @@ class _ApostleHandler(http.server.BaseHTTPRequestHandler):
         })
 
     def _handle_cluster(self):
-        hw = introspect()
-        cat = load_catalog() if MODELS_YAML.exists() else []
-        desired = select_models(cat, hw) if cat else []
-        current = local_models()
-        peers = discover_peers()
-        node_profile = profile(hw)
-        desired_names = {normalize_name(m["name"]) for m in desired}
+        self._json(_cluster_snapshot())
 
-        local_node = {
-            "hostname": socket.gethostname(),
-            "profile": node_profile,
-            "hardware": hw,
-            "models": {
-                "desired": [m["name"] for m in desired],
-                "local": list(current.keys()),
-                "missing": sorted(desired_names - set(current.keys())),
-            },
-            "status": "local",
-        }
+    def _handle_sse(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        try:
+            while True:
+                data = json.dumps(_cluster_snapshot())
+                self.wfile.write(f"data: {data}\n\n".encode())
+                self.wfile.flush()
+                time.sleep(APOSTLE_EVENTS_INTERVAL)
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            pass
 
-        peer_nodes = []
-        for p in peers:
-            node = {
-                "hostname": p.get("host", ""),
-                "url": p.get("url", ""),
-                "models": p.get("models", []),
-                "status": p.get("status", "unknown"),
-                "apostle": None,
-            }
-            try:
-                aurl = f"http://{p['host']}:{APOSTLE_PORT}/apostle/v1/status"
-                resp = urllib.request.urlopen(aurl, timeout=3)
-                node["apostle"] = json.loads(resp.read().decode())
-            except (urllib.error.URLError, json.JSONDecodeError, OSError):
-                pass
-            peer_nodes.append(node)
 
-        all_models: set = set(current.keys())
-        for p in peers:
-            all_models.update(p.get("models", []))
-
-        self._json({
-            "local": local_node,
-            "peers": peer_nodes,
-            "cluster": {
-                "node_count": 1 + len(peers),
-                "total_models": len(all_models),
-                "healthy_peers": sum(
-                    1 for p in peers if p.get("status") == "healthy"
-                ),
-            },
-            "timestamp": time.time(),
-        })
 
     def _handle_manifest(self, model_name):
         if not model_name:
@@ -625,6 +770,7 @@ def cmd_serve(port=None):
     hostname = socket.gethostname()
     print(f"\n {head('Apostle')} HTTP API · {hostname} · port {port}")
     print(f"  {dim('Dashboard:')} http://localhost:{port}/ui")
+    print(f"  {dim('Events:')}    http://localhost:{port}/apostle/v1/events  (SSE)")
     print(f"  {dim('Status:')}    http://localhost:{port}/apostle/v1/status")
     print(f"  {dim('Cluster:')}   http://localhost:{port}/apostle/v1/cluster")
     print(f"  {dim('Manifest:')}  http://localhost:{port}/apostle/v1/manifest/<model>")
