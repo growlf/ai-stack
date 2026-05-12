@@ -447,6 +447,37 @@ def update_olla_config(peers):
 # 7. HTTP API Server  (apostle serve)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+_DASHBOARD_HTML = b"""<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Apostle Node</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,sans-serif;background:#0d1117;color:#c9d1d9;padding:2rem}
+h1{font-size:1.25rem;font-weight:600;margin-bottom:1.5rem;color:#e6edf3}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:1rem;margin-bottom:2rem}
+.card{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:1rem}
+.card h2{font-size:.8rem;text-transform:uppercase;letter-spacing:.05em;color:#8b949e;margin-bottom:.5rem}
+.card p{font-size:1.1rem;font-weight:600;color:#58a6ff}
+a{color:#58a6ff;text-decoration:none}.api{list-style:none}
+.api li{margin:.4rem 0}.api a{font-family:monospace;font-size:.9rem}
+.api a:hover{text-decoration:underline}
+footer{margin-top:2rem;font-size:.8rem;color:#484f58}
+</style></head>
+<body>
+<h1>&#127776; Apostle Node</h1>
+<p style="color:#8b949e;margin-bottom:1.5rem">Node status API. Full cluster visualization at
+<a href="http://localhost:40115/gestalt/ui">router:40115/gestalt/ui</a>.</p>
+<h2 style="font-size:.8rem;text-transform:uppercase;letter-spacing:.05em;color:#8b949e;margin-bottom:.75rem">API Endpoints</h2>
+<ul class="api">
+  <li><a href="/apostle/v1/status">/apostle/v1/status</a> &mdash; this node: hardware, profile, models</li>
+  <li><a href="/apostle/v1/cluster">/apostle/v1/cluster</a> &mdash; cluster view: all peers + model inventory</li>
+  <li><a href="/health">/health</a> &mdash; liveness probe</li>
+</ul>
+<footer>growlf/ai-stack &mdash; apostle serve</footer>
+</body></html>
+"""
+
 class _ApostleHandler(http.server.BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         pass  # suppress default per-request logging
