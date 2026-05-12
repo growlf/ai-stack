@@ -504,11 +504,17 @@ class _ApostleHandler(http.server.BaseHTTPRequestHandler):
         current = local_models()
         peers = discover_peers()
         node_profile = profile(hw)
+        desired_names = {normalize_name(m["name"]) for m in desired}
 
         local_node = {
             "hostname": socket.gethostname(),
             "profile": node_profile,
-            "models": list(current.keys()),
+            "hardware": hw,
+            "models": {
+                "desired": [m["name"] for m in desired],
+                "local": list(current.keys()),
+                "missing": sorted(desired_names - set(current.keys())),
+            },
             "status": "local",
         }
 
@@ -534,8 +540,8 @@ class _ApostleHandler(http.server.BaseHTTPRequestHandler):
             all_models.update(p.get("models", []))
 
         self._json({
-            "coordinator": socket.gethostname(),
-            "nodes": [local_node] + peer_nodes,
+            "local": local_node,
+            "peers": peer_nodes,
             "cluster": {
                 "node_count": 1 + len(peers),
                 "total_models": len(all_models),
@@ -581,10 +587,11 @@ def cmd_serve(port=None):
     server = _ThreadedServer(("", port), _ApostleHandler)
     hostname = socket.gethostname()
     print(f"\n {head('Apostle')} HTTP API · {hostname} · port {port}")
-    print(f"  {dim('Status:')}   http://localhost:{port}/apostle/v1/status")
-    print(f"  {dim('Cluster:')}  http://localhost:{port}/apostle/v1/cluster")
-    print(f"  {dim('Manifest:')} http://localhost:{port}/apostle/v1/manifest/<model>")
-    print(f"  {dim('Health:')}   http://localhost:{port}/health")
+    print(f"  {dim('Dashboard:')} http://localhost:{port}/ui")
+    print(f"  {dim('Status:')}    http://localhost:{port}/apostle/v1/status")
+    print(f"  {dim('Cluster:')}   http://localhost:{port}/apostle/v1/cluster")
+    print(f"  {dim('Manifest:')}  http://localhost:{port}/apostle/v1/manifest/<model>")
+    print(f"  {dim('Health:')}    http://localhost:{port}/health")
     print(f"\n  {dim('Press Ctrl+C to stop')}\n")
     try:
         server.serve_forever()
