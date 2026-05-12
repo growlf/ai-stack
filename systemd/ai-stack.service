@@ -1,11 +1,9 @@
 [Unit]
-Description=AI Stack (Ollama Intel Arc + LiteLLM + Olla + Router + Retriever)
+Description=AI Stack (Ollama + LiteLLM + Olla + Router + Retriever + Apostle)
 After=docker.service
 Requires=docker.service
 
 [Service]
-# GPU pre-flight — validates Intel Arc node before starting containers
-ExecStartPre=/usr/bin/bash ${INSTALL_DIR}/scripts/check-arc-gpu.sh
 Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory=${INSTALL_DIR}

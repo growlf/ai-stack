@@ -1,20 +1,17 @@
 #!/usr/bin/env bash
 # ─── install.sh ───────────────────────────────────────────────────────────────
 # AI Stack installer
-# Installs a self-hosted AI stack optimised for Intel Arc iGPU on Linux
+# Installs a self-hosted AI stack on Linux
+# Supports Intel Arc iGPU, NVIDIA GPU, or CPU-only
 #
 # Requirements:
 #   - Ubuntu 22.04+ or Debian 12+ (tested on Ubuntu 24.04)
 #   - Docker + Docker Compose plugin
-#   - Intel Arc GPU with i915/xe driver loaded
 #   - User in docker group
 #
 # Usage:
 #   cp .env.example .env && nano .env   # configure first
 #   ./install.sh
-#
-# NOTE: For best Intel Arc GPU performance, also install:
-#   sudo apt install intel-opencl-icd intel-media-va-driver-non-free libmfx1
 
 set -euo pipefail
 
@@ -51,6 +48,56 @@ source "${SCRIPT_DIR}/.env"
 STACK_USER="${STACK_USER:-$(whoami)}"
 INSTALL_DIR="${INSTALL_DIR:-${SCRIPT_DIR}}"
 
+# ─── GPU selection ────────────────────────────────────────────────────────────
+# Auto-detect GPU type, or accept --gpu arc|nvidia|cpu flag.
+GPU_TYPE=""
+
+for arg in "$@"; do
+    case "$arg" in
+        --gpu=arc|--arc)     GPU_TYPE="arc" ;;
+        --gpu=nvidia|--nvidia) GPU_TYPE="nvidia" ;;
+        --gpu=cpu|--cpu)     GPU_TYPE="cpu" ;;
+    esac
+done
+
+if [[ -z "$GPU_TYPE" ]]; then
+    # Auto-detect
+    if command -v nvidia-smi &>/dev/null && nvidia-smi &>/dev/null; then
+        GPU_TYPE="nvidia"
+        info "NVIDIA GPU detected — using docker-compose.nvidia.yml overlay."
+    elif ls /dev/dri/card* &>/dev/null 2>&1; then
+        for card in /dev/dri/card*; do
+            cardnum="${card##*card}"
+            vendor=$(cat "/sys/class/drm/card${cardnum}/device/vendor" 2>/dev/null || echo "")
+            if [[ "$vendor" == "0x8086" ]]; then
+                GPU_TYPE="arc"
+                info "Intel Arc GPU detected — using docker-compose.arc.yml overlay."
+                break
+            fi
+        done
+    fi
+    if [[ -z "$GPU_TYPE" ]]; then
+        GPU_TYPE="cpu"
+        info "No GPU detected — using CPU-only mode."
+    fi
+fi
+
+case "$GPU_TYPE" in
+    arc)    COMPOSE_FILES="-f docker-compose.yml -f docker-compose.arc.yml" ;;
+    nvidia) COMPOSE_FILES="-f docker-compose.yml -f docker-compose.nvidia.yml" ;;
+    cpu)    COMPOSE_FILES="-f docker-compose.yml" ;;
+esac
+
+OLLAMA_CONTAINER="ollama"
+
+# Persist GPU_TYPE to .env so start.sh and systemd use the same overlay
+if grep -q '^GPU_TYPE=' "${SCRIPT_DIR}/.env" 2>/dev/null; then
+    sed -i "s|^GPU_TYPE=.*|GPU_TYPE=${GPU_TYPE}|" "${SCRIPT_DIR}/.env"
+else
+    echo "GPU_TYPE=${GPU_TYPE}" >> "${SCRIPT_DIR}/.env"
+fi
+info "GPU_TYPE=${GPU_TYPE} saved to .env"
+
 # ─── Preflight checks ─────────────────────────────────────────────────────────
 header "Preflight Checks"
 
@@ -75,7 +122,7 @@ check_docker_group() {
     success "User ${STACK_USER} is in the docker group."
 }
 
-check_intel_gpu() {
+check_arc_gpu() {
     if ! ls /dev/dri/card* &>/dev/null; then
         error "No DRI devices found. Is the Intel GPU driver loaded?"
     fi
@@ -102,6 +149,26 @@ check_intel_gpu() {
         error "Render node /dev/dri/renderD128 not found."
     fi
     success "Render node /dev/dri/renderD128 present."
+}
+
+check_nvidia_gpu() {
+    if ! command -v nvidia-smi &>/dev/null; then
+        error "nvidia-smi not found. Install the NVIDIA driver and NVIDIA Container Toolkit."
+    fi
+    if ! nvidia-smi &>/dev/null; then
+        error "nvidia-smi failed. Is the NVIDIA driver loaded? Run: nvidia-smi"
+    fi
+    local gpu_name
+    gpu_name=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1)
+    success "NVIDIA GPU: ${gpu_name:-unknown}"
+
+    if ! docker info 2>/dev/null | grep -q "nvidia"; then
+        warn "NVIDIA Container Toolkit may not be installed or configured."
+        warn "Install: https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html"
+        warn "Then: sudo systemctl restart docker"
+    else
+        success "NVIDIA Container Toolkit detected."
+    fi
 }
 
 check_memory() {
@@ -135,7 +202,11 @@ check_vault() {
 
 check_docker
 check_docker_group
-check_intel_gpu
+case "$GPU_TYPE" in
+    arc)    check_arc_gpu ;;
+    nvidia) check_nvidia_gpu ;;
+    cpu)    info "CPU-only mode — skipping GPU checks." ;;
+esac
 check_memory
 check_vault
 
@@ -181,7 +252,7 @@ fi
 # ─── Pull models ──────────────────────────────────────────────────────────────
 header "Pulling Models"
 
-MODELS_TO_PULL="${MODELS_TO_PULL:-deepseek-r1:14b gemma4:27b mistral-small3.2:24b qwen3.5:14b qwen2.5-coder:14b gemma3:12b qwen2.5:14b nomic-embed-text:latest}"
+MODELS_TO_PULL="${MODELS_TO_PULL:-deepseek-r1:14b gemma4:27b mistral-small3.2:24b qwen2.5-coder:14b gemma3:12b qwen2.5:14b nomic-embed-text:latest}"
 
 info "This will pull: ${MODELS_TO_PULL}"
 info "This may take a while depending on your connection speed."
@@ -189,18 +260,18 @@ read -rp "Pull models now? [y/N] " pull_models
 
 if [[ "${pull_models,,}" == "y" ]]; then
     # Find ollama binary inside container — path varies by image
-    OLLAMA_BIN=$(docker exec ollama-arc sh -c \
+    OLLAMA_BIN=$(docker exec "${OLLAMA_CONTAINER}" sh -c \
         'which ollama 2>/dev/null || find /usr /llm -name ollama -type f -executable 2>/dev/null | head -n 1')
 
     if [[ -z "$OLLAMA_BIN" ]]; then
-        error "Could not find ollama binary inside ollama-arc container."
+        error "Could not find ollama binary inside ${OLLAMA_CONTAINER} container."
     fi
 
     info "Found ollama at: ${OLLAMA_BIN}"
 
     for model in ${MODELS_TO_PULL}; do
         info "Pulling ${model}..."
-        if docker exec ollama-arc "${OLLAMA_BIN}" pull "${model}"; then
+        if docker exec "${OLLAMA_CONTAINER}" "${OLLAMA_BIN}" pull "${model}"; then
             success "Pulled: ${model}"
         else
             warn "Failed to pull: ${model} (check container logs)"
@@ -209,7 +280,7 @@ if [[ "${pull_models,,}" == "y" ]]; then
 else
     info "Skipping model pull. Pull manually with:"
     for model in ${MODELS_TO_PULL}; do
-        echo "  docker exec ollama-arc ollama pull ${model}"
+        echo "  docker exec ${OLLAMA_CONTAINER} ollama pull ${model}"
     done
 fi
 
@@ -286,23 +357,20 @@ if command -v opencode &>/dev/null; then
         "baseURL": "http://localhost:40115/v1"
       },
       "models": {
-        "qwen3.5:14b": {
-          "name": "Qwen 3.5 14B (default)"
-        },
         "gemma4:27b": {
           "name": "Gemma 4 27B (heavy lifting)"
         },
         "mistral-small3.2:24b": {
           "name": "Mistral Small 3.2 24B (tool calling)"
         },
-        "qwen2.5:14b": {
-          "name": "Qwen 2.5 14B (diagnostics)"
+        "deepseek-r1:14b": {
+          "name": "DeepSeek R1 14B (reasoning)"
         },
         "qwen2.5-coder:14b": {
           "name": "Qwen 2.5 Coder 14B (code)"
         },
-        "deepseek-r1:14b": {
-          "name": "DeepSeek R1 14B (reasoning)"
+        "qwen2.5:14b": {
+          "name": "Qwen 2.5 14B (diagnostics)"
         },
         "gemma3:12b": {
           "name": "Gemma 3 12B (longform/logs)"

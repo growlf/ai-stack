@@ -38,18 +38,41 @@ bash "${SCRIPT_DIR}/scripts/resolve-vaultwarden.sh"
 bash "${SCRIPT_DIR}/scripts/generate-olla-config.sh"
 
 # ── 4. Detect GPU and apply overlay ───────────────────────────────────
-GPU_OVERLAY=""
-if [[ -e /dev/dri/renderD128 ]]; then
-  if [[ -f "${SCRIPT_DIR}/docker-compose.arc.yml" ]]; then
-    GPU_OVERLAY="-f docker-compose.yml -f docker-compose.arc.yml"
-    echo "→ Intel GPU detected — using Arc GPU overlay"
+# Explicit GPU_TYPE in .env takes priority over auto-detection.
+source .env 2>/dev/null || true
+GPU_TYPE="${GPU_TYPE:-}"
+
+if [[ -z "$GPU_TYPE" ]]; then
+  if command -v nvidia-smi &>/dev/null && nvidia-smi &>/dev/null 2>&1; then
+    GPU_TYPE="nvidia"
+  elif ls /dev/dri/card* &>/dev/null 2>&1; then
+    for card in /dev/dri/card*; do
+      cardnum="${card##*card}"
+      vendor=$(cat "/sys/class/drm/card${cardnum}/device/vendor" 2>/dev/null || echo "")
+      if [[ "$vendor" == "0x8086" ]]; then
+        GPU_TYPE="arc"
+        break
+      fi
+    done
   fi
+  GPU_TYPE="${GPU_TYPE:-cpu}"
 fi
+
+case "$GPU_TYPE" in
+  arc)
+    COMPOSE_ARGS="-f docker-compose.yml -f docker-compose.arc.yml"
+    echo "→ Intel Arc GPU — using Arc overlay"
+    ;;
+  nvidia)
+    COMPOSE_ARGS="-f docker-compose.yml -f docker-compose.nvidia.yml"
+    echo "→ NVIDIA GPU — using NVIDIA overlay"
+    ;;
+  *)
+    COMPOSE_ARGS="-f docker-compose.yml"
+    echo "→ CPU-only mode"
+    ;;
+esac
 
 # ── 5. Start the stack ────────────────────────────────────────────────
 echo "→ Starting stack..."
-if [[ -n "$GPU_OVERLAY" ]]; then
-  docker compose $GPU_OVERLAY up "$@"
-else
-  docker compose up "$@"
-fi
+docker compose $COMPOSE_ARGS up "$@"
