@@ -160,6 +160,14 @@ services:
       - OLLA_URL=http://olla:40114
       - LISTEN_HOST=0.0.0.0
       - LISTEN_PORT=40115
+      # Override default model assignments — set in .env if your installed models differ
+      - ROUTER_MODEL_DEFAULT=${ROUTER_MODEL_DEFAULT:-qwen3.5:14b}
+      - ROUTER_MODEL_TOOLS=${ROUTER_MODEL_TOOLS:-mistral-small3.2:24b}
+      - ROUTER_MODEL_DIAGNOSTICS=${ROUTER_MODEL_DIAGNOSTICS:-qwen2.5:14b}
+      - ROUTER_MODEL_SCRIPTING=${ROUTER_MODEL_SCRIPTING:-qwen2.5-coder:14b}
+      - ROUTER_MODEL_REASONING=${ROUTER_MODEL_REASONING:-deepseek-r1:14b}
+      - ROUTER_MODEL_LONGFORM=${ROUTER_MODEL_LONGFORM:-gemma3:12b}
+      - ROUTER_MODEL_HEAVY=${ROUTER_MODEL_HEAVY:-gemma4:27b}
     depends_on:
       olla:
         condition: service_healthy

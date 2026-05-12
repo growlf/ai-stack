@@ -253,10 +253,10 @@ async def handle_request(data: dict) -> dict:
 
     if needs_tools:
         preferred = MODELS["tools"]
-        if not registry.supports_tools(preferred):
+        if not registry.supports_tools(preferred) or not registry.is_available(preferred):
             fallback = registry.best_tools_model()
             if fallback:
-                print(f"[SmartRouter] {preferred} has no tool support, using {fallback}")
+                print(f"[SmartRouter] {preferred} not available for tools, using {fallback}")
                 preferred = fallback
             else:
                 print(f"[SmartRouter] WARNING: no tool-capable model available; "
@@ -266,6 +266,8 @@ async def handle_request(data: dict) -> dict:
         model, reason = classify(user_message)
         if not registry.is_available(model):
             fallback = MODELS["default"]
+            if not registry.is_available(fallback):
+                fallback = next(iter(registry._registry), fallback)
             print(f"[SmartRouter] {model} not available, falling back to {fallback}")
             model, reason = fallback, f"fallback ({reason})"
 
