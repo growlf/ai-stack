@@ -44,8 +44,8 @@ if [[ ! -f "$ENV_FILE" ]]; then
     exit 0
 fi
 
-# Check for placeholders
-if ! grep -q '<vaultwarden:' "$ENV_FILE" 2>/dev/null; then
+# Check for placeholders (exclude comment lines)
+if ! grep -v '^[[:space:]]*#' "$ENV_FILE" 2>/dev/null | grep -q '<vaultwarden:'; then
     echo "→ No <vaultwarden:...> placeholders found in .env"
     exit 0
 fi
