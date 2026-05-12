@@ -46,14 +46,9 @@ if [[ -z "$GPU_TYPE" ]]; then
   if command -v nvidia-smi &>/dev/null && nvidia-smi &>/dev/null 2>&1; then
     GPU_TYPE="nvidia"
   elif ls /dev/dri/card* &>/dev/null 2>&1; then
-    for card in /dev/dri/card*; do
-      cardnum="${card##*card}"
-      vendor=$(cat "/sys/class/drm/card${cardnum}/device/vendor" 2>/dev/null || echo "")
-      if [[ "$vendor" == "0x8086" ]]; then
-        GPU_TYPE="arc"
-        break
-      fi
-    done
+    if command -v lspci &>/dev/null && lspci 2>/dev/null | grep -iq "Intel.*Arc"; then
+      GPU_TYPE="arc"
+    fi
   fi
   GPU_TYPE="${GPU_TYPE:-cpu}"
 fi
