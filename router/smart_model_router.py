@@ -31,13 +31,13 @@ LISTEN_PORT = int(os.environ.get("LISTEN_PORT", "40115"))
 CAPABILITY_REFRESH_INTERVAL = int(os.environ.get("CAPABILITY_REFRESH_INTERVAL", "300"))
 
 MODELS = {
-    "diagnostics": "qwen2.5:14b",
-    "scripting":   "qwen2.5-coder:14b",
-    "reasoning":   "deepseek-r1:14b",
-    "longform":    "gemma3:12b",
-    "heavy":       "gemma4:27b",
-    "tools":       "mistral-small3.2:24b",
-    "default":     "qwen3.5:14b",
+    "diagnostics": os.environ.get("ROUTER_MODEL_DIAGNOSTICS", "qwen2.5:14b"),
+    "scripting":   os.environ.get("ROUTER_MODEL_SCRIPTING",   "qwen2.5-coder:14b"),
+    "reasoning":   os.environ.get("ROUTER_MODEL_REASONING",   "deepseek-r1:14b"),
+    "longform":    os.environ.get("ROUTER_MODEL_LONGFORM",    "gemma3:12b"),
+    "heavy":       os.environ.get("ROUTER_MODEL_HEAVY",       "gemma4:27b"),
+    "tools":       os.environ.get("ROUTER_MODEL_TOOLS",       "mistral-small3.2:24b"),
+    "default":     os.environ.get("ROUTER_MODEL_DEFAULT",     "qwen3.5:14b"),
 }
 
 # Model families known to support / not support tool calling.
