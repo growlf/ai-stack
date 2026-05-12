@@ -238,10 +238,10 @@ async def handle_request(data: dict) -> dict:
     # Only force the tools model when tools are needed for the task
     if needs_tools and reason == "scripting":
         preferred = MODELS["tools"]
-        if not registry.supports_tools(preferred):
+        if not registry.supports_tools(preferred) or not registry.is_available(preferred):
             fallback = registry.best_tools_model()
             if fallback:
-                print(f"[SmartRouter] {preferred} has no tool support, using {fallback}")
+                print(f"[SmartRouter] {preferred} not suitable for tools, using {fallback}")
                 preferred = fallback
             else:
                 print(f"[SmartRouter] WARNING: no tool-capable model available; "
@@ -249,7 +249,7 @@ async def handle_request(data: dict) -> dict:
         model, reason = preferred, f"tools ({reason})"
 
     if needs_tools and not registry.supports_tools(model):
-        fallback = "qwen2.5:14b"
+        fallback = registry.best_tools_model() or MODELS["default"]
         print(f"[SmartRouter] {model} does not support tools, falling back to {fallback}")
         model, reason = fallback, f"tools-fallback ({reason})"
 
