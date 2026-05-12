@@ -48,7 +48,7 @@ if [[ ! -f "${SCRIPT_DIR}/.env" ]]; then
 fi
 
 # Resolve VaultWarden placeholders before sourcing
-if grep -q '<vaultwarden:' "${SCRIPT_DIR}/.env" 2>/dev/null; then
+if grep -v '^[[:space:]]*#' "${SCRIPT_DIR}/.env" 2>/dev/null | grep -q '<vaultwarden:'; then
     info "Resolving VaultWarden placeholders in .env..."
     if [[ -z "${BW_SESSION:-}" ]] && [[ -z "${VAULT_MASTER_PASSWORD:-}" ]]; then
         warn "Your .env has VaultWarden secrets but no active session was found."
