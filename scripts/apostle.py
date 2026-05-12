@@ -43,6 +43,12 @@ OLLAMA_PORT = 11434
 OLLA_PORT = 40114
 APOSTLE_PORT = int(os.environ.get("APOSTLE_PORT", "40116"))
 APOSTLE_EVENTS_INTERVAL = float(os.environ.get("APOSTLE_EVENTS_INTERVAL", "5"))
+APOSTLE_SYNC_INTERVAL = int(os.environ.get("APOSTLE_SYNC_INTERVAL", "1800"))
+APOSTLE_MAX_DISK_PCT  = int(os.environ.get("APOSTLE_MAX_DISK_PCT", "85"))
+MAX_AUTO_PULL_GB      = float(os.environ.get("MAX_AUTO_PULL_GB", "10"))
+APOSTLE_MAINTENANCE   = os.environ.get("APOSTLE_MAINTENANCE", "").lower() in ("1", "true", "yes")
+_OFFHOURS_START       = int(os.environ.get("APOSTLE_OFFHOURS_START", "22"))
+_OFFHOURS_END         = int(os.environ.get("APOSTLE_OFFHOURS_END", "6"))
 _ollama_host = os.environ.get("OLLAMA_HOST", "")
 OLLAMA_URL = (
     f"http://{_ollama_host}:{OLLAMA_PORT}" if _ollama_host
@@ -445,7 +451,153 @@ def update_olla_config(peers):
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# 7. HTTP API Server  (apostle serve)
+# 7. Self-Healing Engine
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+_sync_lock = threading.Lock()
+_sync_state: dict = {
+    "running": False,
+    "in_progress": [],
+    "last_run": None,
+    "next_run": None,
+    "acquired": [],
+    "failed": [],
+    "skipped": [],
+}
+
+
+def _is_offhours():
+    h = time.localtime().tm_hour
+    s, e = _OFFHOURS_START, _OFFHOURS_END
+    return (h >= s or h < e) if s > e else (s <= h < e)
+
+
+def _disk_pct():
+    d = introspect().get("disk", {})
+    total = d.get("total_gb", 0)
+    used = d.get("used_gb", 0)
+    return int(used * 100 / total) if total > 0 else 0
+
+
+def _peer_in_progress(model_name):
+    for p in load_env_peers():
+        try:
+            url = f"http://{p['host']}:{APOSTLE_PORT}/apostle/v1/sync"
+            resp = urllib.request.urlopen(url, timeout=3)
+            data = json.loads(resp.read().decode())
+            if model_name in data.get("in_progress", []):
+                return p["host"]
+        except (urllib.error.URLError, json.JSONDecodeError, OSError):
+            pass
+    return None
+
+
+def ollama_pull_via_api(model_name):
+    url = f"{OLLAMA_URL}/api/pull"
+    payload = json.dumps({"name": model_name, "stream": False}).encode()
+    req = urllib.request.Request(
+        url, data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        resp = urllib.request.urlopen(req, timeout=7200)
+        result = json.loads(resp.read().decode())
+        return result.get("status") == "success"
+    except (urllib.error.URLError, json.JSONDecodeError, OSError):
+        return False
+
+
+def _run_sync_cycle(manual=False):
+    with _sync_lock:
+        if _sync_state["running"]:
+            return
+        _sync_state["running"] = True
+        _sync_state["in_progress"] = []
+        _sync_state["skipped"] = []
+
+    try:
+        if APOSTLE_MAINTENANCE and not manual:
+            with _sync_lock:
+                _sync_state["skipped"].append("maintenance mode active")
+            return
+
+        pct = _disk_pct()
+        if pct >= APOSTLE_MAX_DISK_PCT:
+            with _sync_lock:
+                _sync_state["skipped"].append(f"disk {pct}% >= limit {APOSTLE_MAX_DISK_PCT}%")
+            return
+
+        cat = load_catalog() if MODELS_YAML.exists() else []
+        if not cat:
+            return
+
+        hw = introspect()
+        desired = select_models(cat, hw)
+        current = local_models()
+        peers = discover_peers()
+        actions, _ = reconcile(desired, current, peers)
+
+        for action in actions:
+            model = normalize_name(action["model"])
+            peer_src = action.get("peer_source")
+
+            pulling_peer = _peer_in_progress(model)
+            if pulling_peer:
+                with _sync_lock:
+                    _sync_state["skipped"].append(f"{model} (waiting on {pulling_peer})")
+                continue
+
+            if not peer_src and not manual:
+                info = next((m for m in cat if normalize_name(m["name"]) == model), {})
+                if info.get("disk_gb", 0) > MAX_AUTO_PULL_GB and not _is_offhours():
+                    with _sync_lock:
+                        _sync_state["skipped"].append(
+                            f"{model} (>{MAX_AUTO_PULL_GB}GB, deferred to off-hours)"
+                        )
+                    continue
+
+            with _sync_lock:
+                _sync_state["in_progress"].append(model)
+
+            success = False
+            try:
+                if peer_src:
+                    result = acquire_from_peer(model, peer_src)
+                    success = result is True
+                    if not success:
+                        success = ollama_pull_via_api(model) or acquire_via_pull(model)
+                else:
+                    success = ollama_pull_via_api(model) or acquire_via_pull(model)
+            finally:
+                with _sync_lock:
+                    _sync_state["in_progress"] = [
+                        m for m in _sync_state["in_progress"] if m != model
+                    ]
+                    if success:
+                        _sync_state["acquired"].append(model)
+                    else:
+                        _sync_state["failed"].append(model)
+    finally:
+        with _sync_lock:
+            _sync_state["running"] = False
+            _sync_state["last_run"] = time.time()
+            _sync_state["next_run"] = time.time() + APOSTLE_SYNC_INTERVAL
+
+
+def _start_sync_daemon():
+    def _loop():
+        time.sleep(10)
+        _run_sync_cycle()
+        while True:
+            time.sleep(APOSTLE_SYNC_INTERVAL)
+            _run_sync_cycle()
+
+    threading.Thread(target=_loop, name="apostle-sync", daemon=True).start()
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 8. HTTP API Server  (apostle serve)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 _DASHBOARD_HTML = (
@@ -495,6 +647,8 @@ _DASHBOARD_HTML = (
     b"<div class=\"l\">Models</div></div>\n"
     b"  <div class=\"stat\"><div class=\"v\" id=\"sh\">-</div>"
     b"<div class=\"l\">Healthy</div></div>\n"
+    b"  <div class=\"stat\"><div class=\"v\" id=\"sy\">—</div>"
+    b"<div class=\"l\">Sync</div></div>\n"
     b"  <div id=\"dot\" title=\"Live stream\"></div>\n"
     b"</div>\n"
     b"<div id=\"wrap\"><svg id=\"g\"></svg></div>\n"
@@ -606,6 +760,17 @@ _DASHBOARD_HTML = (
     b"  try{update(JSON.parse(e.data));}catch(ex){}\n"
     b"};\n"
     b"es.onerror=()=>document.getElementById('dot').classList.add('stale');\n"
+    b"function updateSync(){\n"
+    b"  fetch('/apostle/v1/sync').then(r=>r.json()).then(s=>{\n"
+    b"    const el=document.getElementById('sy');\n"
+    b"    if(s.running)el.textContent='...';\n"
+    b"    else if(s.last_run){\n"
+    b"      const d=new Date(s.last_run*1000);\n"
+    b"      el.textContent=d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});\n"
+    b"    }else el.textContent='—';\n"
+    b"  }).catch(()=>{});\n"
+    b"}\n"
+    b"updateSync();setInterval(updateSync,30000);\n"
     b"</script>\n</body>\n</html>\n"
 )
 
@@ -652,6 +817,7 @@ def _cluster_snapshot():
             "total_models": len(all_models),
             "healthy_peers": sum(1 for p in peers if p.get("status") == "healthy"),
         },
+        "sync": dict(_sync_state),
         "timestamp": time.time(),
     }
 
@@ -690,10 +856,30 @@ class _ApostleHandler(http.server.BaseHTTPRequestHandler):
             self._handle_sse()
         elif url_path.startswith("/apostle/v1/manifest/"):
             self._handle_manifest(url_path[len("/apostle/v1/manifest/"):])
+        elif url_path == "/apostle/v1/sync":
+            self._handle_sync_get()
         elif url_path in ("/health", "/apostle/health"):
             self._json({"status": "ok", "hostname": socket.gethostname()})
         else:
             self._json({"error": "not found"}, 404)
+
+    def do_POST(self):
+        url_path = self.path.split("?")[0].rstrip("/")
+        if url_path == "/apostle/v1/sync":
+            self._handle_sync_post()
+        else:
+            self._json({"error": "not found"}, 404)
+
+    def _handle_sync_get(self):
+        with _sync_lock:
+            state = dict(_sync_state)
+        self._json(state)
+
+    def _handle_sync_post(self):
+        threading.Thread(
+            target=_run_sync_cycle, kwargs={"manual": True}, daemon=True
+        ).start()
+        self._json({"status": "sync triggered"})
 
     def _handle_status(self):
         hw = introspect()
@@ -775,7 +961,9 @@ def cmd_serve(port=None):
     print(f"  {dim('Cluster:')}   http://localhost:{port}/apostle/v1/cluster")
     print(f"  {dim('Manifest:')}  http://localhost:{port}/apostle/v1/manifest/<model>")
     print(f"  {dim('Health:')}    http://localhost:{port}/health")
+    print(f"  {dim('Sync:')}      http://localhost:{port}/apostle/v1/sync")
     print(f"\n  {dim('Press Ctrl+C to stop')}\n")
+    _start_sync_daemon()
     try:
         server.serve_forever()
     except KeyboardInterrupt:
