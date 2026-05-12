@@ -12,6 +12,11 @@ Routing:
 - Heavy lifting    -> gemma3:12b        (complex analysis, large context, no tools)
 - Tool calling     -> llama3.1:8b       (strong function calling)
 - Default          -> qwen2.5:1.5b      (general conversation)
+
+Observable gestalt:
+- GET /gestalt/status  — live cluster state (nodes, models, routing table, stats)
+- GET /gestalt/events  — SSE stream of routing decisions
+- GET /gestalt/ui      — real-time dashboard (D3 force graph)
 """
 
 import os
@@ -19,10 +24,12 @@ import json
 import asyncio
 import time
 import httpx
+from collections import deque
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 from typing import Optional, Tuple
 from fastapi import FastAPI, Request, Response
+from fastapi.responses import StreamingResponse, HTMLResponse
 
 OLLA_URL = os.environ.get("OLLA_URL", "http://olla:40114")
 LISTEN_HOST = os.environ.get("LISTEN_HOST", "0.0.0.0")
@@ -63,6 +70,11 @@ _CLASSIFY_SYSTEM_PROMPT = (
     "Simple greetings like 'hi' are ALWAYS 'default'.\n"
     "Reply with ONLY the category name."
 )
+
+# ── Observable gestalt state ──────────────────────────────────────────────────
+_routing_log: deque = deque(maxlen=100)
+_request_count: int = 0
+_event_queues: list[asyncio.Queue] = []
 
 
 @dataclass
@@ -209,7 +221,24 @@ def should_route(data: dict, path: str) -> bool:
     return not any(c in model for c in ("claude", "gemini", "gpt"))
 
 
+async def _push_event(event: dict) -> None:
+    """Broadcast an event to all active SSE subscribers."""
+    dead = []
+    for q in _event_queues:
+        try:
+            q.put_nowait(event)
+        except asyncio.QueueFull:
+            dead.append(q)
+    for q in dead:
+        try:
+            _event_queues.remove(q)
+        except ValueError:
+            pass
+
+
 async def handle_request(data: dict) -> dict:
+    global _request_count
+
     messages = data.get("messages", [])
     if not messages:
         return data
@@ -260,7 +289,272 @@ async def handle_request(data: dict) -> dict:
 
     data["model"] = model
     print(f"[SmartRouter] '{user_message[:80]}' -> {model} ({reason})")
+
+    _request_count += 1
+    entry = {
+        "ts": time.time(),
+        "query": user_message[:80],
+        "model": model,
+        "reason": reason,
+    }
+    _routing_log.appendleft(entry)
+    asyncio.create_task(_push_event({"type": "route", **entry}))
+
     return data
+
+
+# ── Gestalt cluster status ────────────────────────────────────────────────────
+
+async def _fetch_olla_endpoints() -> list[dict]:
+    """Query Olla's internal status endpoint for known nodes."""
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(5.0)) as client:
+            resp = await client.get(f"{OLLA_URL}/internal/status/endpoints")
+            if resp.status_code == 200:
+                data = resp.json()
+                # Olla returns various shapes — normalise to a list of node dicts
+                if isinstance(data, list):
+                    return data
+                if isinstance(data, dict):
+                    return data.get("endpoints", data.get("nodes", []))
+    except Exception:
+        pass
+    return []
+
+
+# ── Gestalt dashboard HTML ────────────────────────────────────────────────────
+
+_DASHBOARD_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Enclave AI Cluster</title>
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0d1117; color: #e6edf3; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 13px; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+
+  #header { background: #161b22; border-bottom: 1px solid #30363d; padding: 12px 20px; display: flex; align-items: center; gap: 24px; flex-shrink: 0; }
+  #header h1 { font-size: 15px; font-weight: 600; color: #58a6ff; letter-spacing: 0.5px; }
+  .stat { display: flex; flex-direction: column; align-items: center; }
+  .stat-value { font-size: 20px; font-weight: 700; color: #3fb950; }
+  .stat-label { font-size: 10px; color: #8b949e; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 1px; }
+  #status-dot { width: 8px; height: 8px; border-radius: 50%; background: #3fb950; margin-left: auto; box-shadow: 0 0 6px #3fb950; animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+  #main { display: flex; flex: 1; overflow: hidden; }
+  #graph-panel { flex: 1; position: relative; overflow: hidden; }
+  #graph-panel svg { width: 100%; height: 100%; }
+
+  #side-panel { width: 320px; border-left: 1px solid #30363d; display: flex; flex-direction: column; overflow: hidden; }
+  #models-panel { padding: 12px; border-bottom: 1px solid #30363d; }
+  #models-panel h2 { font-size: 11px; color: #8b949e; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 8px; }
+  .model-chip { display: inline-block; background: #1f2937; border: 1px solid #374151; border-radius: 4px; padding: 2px 7px; margin: 2px; font-size: 11px; color: #9ca3af; transition: all 0.3s; }
+  .model-chip.tools { border-color: #f59e0b44; color: #f59e0b; }
+  .model-chip.active { border-color: #3fb950; color: #3fb950; background: #0d2818; box-shadow: 0 0 8px #3fb95044; }
+
+  #log-panel { flex: 1; overflow-y: auto; padding: 12px; }
+  #log-panel h2 { font-size: 11px; color: #8b949e; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 8px; position: sticky; top: 0; background: #0d1117; padding-bottom: 4px; }
+  .log-entry { padding: 6px 8px; margin-bottom: 4px; border-left: 2px solid #30363d; background: #161b22; border-radius: 0 4px 4px 0; transition: border-color 0.5s; }
+  .log-entry.new { border-left-color: #3fb950; animation: fadeIn 0.4s ease; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateX(-4px); } to { opacity: 1; transform: none; } }
+  .log-model { color: #58a6ff; font-weight: 600; font-size: 12px; }
+  .log-reason { color: #8b949e; font-size: 10px; margin-top: 1px; }
+  .log-query { color: #e6edf3; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 11px; }
+
+  .node circle { stroke-width: 2; cursor: pointer; transition: r 0.3s; }
+  .node text { font-size: 11px; fill: #e6edf3; text-anchor: middle; pointer-events: none; }
+  .node.hub circle { stroke: #58a6ff; fill: #0d2040; }
+  .node.model circle { stroke: #30363d; fill: #161b22; }
+  .node.model.tools circle { stroke: #f59e0b44; }
+  .node.active circle { stroke: #3fb950 !important; fill: #0d2818 !important; }
+  .link { stroke: #30363d; stroke-opacity: 0.5; stroke-width: 1; }
+  .link.active { stroke: #3fb950; stroke-opacity: 0.8; stroke-width: 2; animation: linkPulse 0.6s ease-out; }
+  @keyframes linkPulse { from { stroke-opacity: 1; stroke-width: 3; } to { stroke-opacity: 0.8; stroke-width: 2; } }
+
+  #footer { background: #161b22; border-top: 1px solid #30363d; padding: 6px 20px; font-size: 10px; color: #8b949e; flex-shrink: 0; }
+</style>
+</head>
+<body>
+<div id="header">
+  <h1>⬡ ENCLAVE AI CLUSTER</h1>
+  <div class="stat"><div class="stat-value" id="stat-nodes">—</div><div class="stat-label">Nodes</div></div>
+  <div class="stat"><div class="stat-value" id="stat-models">—</div><div class="stat-label">Models</div></div>
+  <div class="stat"><div class="stat-value" id="stat-requests">0</div><div class="stat-label">Requests</div></div>
+  <div class="stat"><div class="stat-value" id="stat-tools">—</div><div class="stat-label">Tool-capable</div></div>
+  <div id="status-dot" title="Live"></div>
+</div>
+<div id="main">
+  <div id="graph-panel"><svg id="graph"></svg></div>
+  <div id="side-panel">
+    <div id="models-panel">
+      <h2>Available Models</h2>
+      <div id="model-chips"></div>
+    </div>
+    <div id="log-panel">
+      <h2>Routing Log</h2>
+      <div id="log-entries"></div>
+    </div>
+  </div>
+</div>
+<div id="footer">Enclave Smart Router · <span id="router-url"></span> · SSE live feed active</div>
+
+<script>
+const ROUTER = window.location.origin;
+document.getElementById('router-url').textContent = ROUTER;
+
+// ── D3 force graph ────────────────────────────────────────────────────────────
+const svg = d3.select('#graph');
+let width = 0, height = 0;
+const g = svg.append('g');
+
+// Zoom + pan
+svg.call(d3.zoom().scaleExtent([0.3, 3]).on('zoom', e => g.attr('transform', e.transform)));
+
+let simulation, linkSel, nodeSel;
+let graphNodes = [], graphLinks = [];
+let activeModel = null;
+
+function initGraph(models) {
+  width = document.getElementById('graph-panel').clientWidth;
+  height = document.getElementById('graph-panel').clientHeight;
+
+  graphNodes = [{ id: 'router', type: 'hub', label: 'Router', x: width/2, y: height/2, fx: width/2, fy: height/2 }];
+  graphLinks = [];
+
+  models.forEach(m => {
+    graphNodes.push({ id: m.name, type: 'model', label: m.name.split(':')[0], tools: m.tools });
+    graphLinks.push({ source: 'router', target: m.name });
+  });
+
+  simulation = d3.forceSimulation(graphNodes)
+    .force('link', d3.forceLink(graphLinks).id(d => d.id).distance(120).strength(0.5))
+    .force('charge', d3.forceManyBody().strength(-200))
+    .force('collision', d3.forceCollide(40))
+    .on('tick', ticked);
+
+  g.selectAll('*').remove();
+
+  linkSel = g.append('g').selectAll('line')
+    .data(graphLinks).join('line').attr('class', 'link');
+
+  nodeSel = g.append('g').selectAll('g')
+    .data(graphNodes).join('g')
+    .attr('class', d => `node ${d.type}${d.tools ? ' tools' : ''}`)
+    .call(d3.drag()
+      .on('start', (e, d) => { if (!e.active) simulation.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
+      .on('drag', (e, d) => { d.fx = e.x; d.fy = e.y; })
+      .on('end', (e, d) => { if (!e.active) simulation.alphaTarget(0); if (d.type !== 'hub') { d.fx = null; d.fy = null; } }));
+
+  nodeSel.append('circle').attr('r', d => d.type === 'hub' ? 24 : 16);
+  nodeSel.append('text').attr('dy', d => d.type === 'hub' ? 36 : 28).text(d => d.label);
+}
+
+function ticked() {
+  linkSel.attr('x1', d => d.source.x).attr('y1', d => d.source.y)
+         .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
+  nodeSel.attr('transform', d => `translate(${d.x},${d.y})`);
+}
+
+function activateModel(modelName) {
+  if (!nodeSel) return;
+  nodeSel.classed('active', d => d.id === modelName || d.id === 'router');
+  linkSel.classed('active', d => d.target.id === modelName || d.target === modelName);
+  setTimeout(() => {
+    nodeSel.classed('active', false);
+    linkSel.classed('active', false);
+  }, 1200);
+}
+
+// ── Status polling ────────────────────────────────────────────────────────────
+let lastModelCount = 0;
+
+async function refreshStatus() {
+  try {
+    const r = await fetch(`${ROUTER}/gestalt/status`);
+    const d = await r.json();
+
+    document.getElementById('stat-nodes').textContent = d.nodes.length || 1;
+    document.getElementById('stat-models').textContent = d.totals.models_available;
+    document.getElementById('stat-requests').textContent = d.totals.requests_served;
+    document.getElementById('stat-tools').textContent = d.models.filter(m => m.tools).length;
+
+    if (d.totals.models_available !== lastModelCount) {
+      lastModelCount = d.totals.models_available;
+      initGraph(d.models);
+      renderChips(d.models);
+    }
+
+    if (d.routing.recent_decisions.length > 0) {
+      renderLog(d.routing.recent_decisions);
+    }
+  } catch(e) { /* olla unreachable */ }
+}
+
+function renderChips(models) {
+  const el = document.getElementById('model-chips');
+  el.innerHTML = models.map(m =>
+    `<span class="model-chip${m.tools ? ' tools' : ''}" data-model="${m.name}">${m.name}</span>`
+  ).join('');
+}
+
+function renderLog(decisions) {
+  const el = document.getElementById('log-entries');
+  const existing = new Set(Array.from(el.querySelectorAll('.log-entry')).map(e => e.dataset.ts));
+  decisions.slice(0, 20).forEach(d => {
+    if (existing.has(String(d.ts))) return;
+    const div = document.createElement('div');
+    div.className = 'log-entry new';
+    div.dataset.ts = d.ts;
+    div.innerHTML = `<div class="log-model">${d.model}</div><div class="log-reason">${d.reason}</div><div class="log-query">${d.query}</div>`;
+    el.insertBefore(div, el.firstChild);
+    setTimeout(() => div.classList.remove('new'), 600);
+  });
+  while (el.children.length > 30) el.removeChild(el.lastChild);
+}
+
+// ── SSE live feed ─────────────────────────────────────────────────────────────
+function connectSSE() {
+  const es = new EventSource(`${ROUTER}/gestalt/events`);
+  es.onmessage = e => {
+    const data = JSON.parse(e.data);
+    if (data.type === 'route') {
+      document.getElementById('stat-requests').textContent =
+        parseInt(document.getElementById('stat-requests').textContent) + 1;
+
+      activateModel(data.model);
+
+      // Update chip highlight
+      document.querySelectorAll('.model-chip').forEach(c => {
+        c.classList.toggle('active', c.dataset.model === data.model);
+        setTimeout(() => c.classList.remove('active'), 1200);
+      });
+
+      // Prepend log entry
+      const el = document.getElementById('log-entries');
+      const div = document.createElement('div');
+      div.className = 'log-entry new';
+      div.dataset.ts = data.ts;
+      div.innerHTML = `<div class="log-model">${data.model}</div><div class="log-reason">${data.reason}</div><div class="log-query">${data.query}</div>`;
+      el.insertBefore(div, el.firstChild);
+      setTimeout(() => div.classList.remove('new'), 600);
+      while (el.children.length > 30) el.removeChild(el.lastChild);
+    }
+  };
+  es.onerror = () => setTimeout(connectSSE, 3000);
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+refreshStatus();
+setInterval(refreshStatus, 5000);
+connectSSE();
+new ResizeObserver(() => {
+  if (lastModelCount > 0) { width = document.getElementById('graph-panel').clientWidth; height = document.getElementById('graph-panel').clientHeight; if (simulation) { simulation.force('center', d3.forceCenter(width/2, height/2)).alpha(0.3).restart(); }}
+}).observe(document.getElementById('graph-panel'));
+</script>
+</body>
+</html>"""
 
 
 app = FastAPI(title="Smart Model Router", lifespan=lifespan)
@@ -296,6 +590,65 @@ async def list_capabilities():
         "preferred_tools_model": registry.best_tools_model(),
         "configured_models": MODELS,
     }
+
+
+@app.get("/gestalt/status")
+async def gestalt_status():
+    """Live cluster state: nodes, models, routing table, recent decisions."""
+    nodes = await _fetch_olla_endpoints()
+    return {
+        "timestamp": time.time(),
+        "nodes": nodes,
+        "models": [
+            {"name": cap.name, "tools": cap.tools, "available": cap.available}
+            for cap in registry._registry.values()
+        ],
+        "routing": {
+            "configured_models": MODELS,
+            "recent_decisions": list(_routing_log),
+        },
+        "totals": {
+            "requests_served": _request_count,
+            "models_available": len(registry._registry),
+        },
+    }
+
+
+@app.get("/gestalt/events")
+async def gestalt_events():
+    """SSE stream of live routing decisions."""
+    queue: asyncio.Queue = asyncio.Queue(maxsize=50)
+    _event_queues.append(queue)
+
+    async def generate():
+        try:
+            # Send a keepalive comment every 15s so the connection stays open
+            while True:
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=15.0)
+                    yield f"data: {json.dumps(event)}\n\n"
+                except asyncio.TimeoutError:
+                    yield ": keepalive\n\n"
+        finally:
+            try:
+                _event_queues.remove(queue)
+            except ValueError:
+                pass
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@app.get("/gestalt/ui", response_class=HTMLResponse)
+async def gestalt_ui():
+    """Real-time cluster dashboard — D3 force graph + routing log."""
+    return _DASHBOARD_HTML
 
 
 @app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
@@ -340,6 +693,7 @@ def main():
     print(f"[SmartRouter] Listening on {LISTEN_HOST}:{LISTEN_PORT}")
     print(f"[SmartRouter] Forwarding to Olla at {OLLA_URL}")
     print(f"[SmartRouter] Capability refresh interval: {CAPABILITY_REFRESH_INTERVAL}s")
+    print(f"[SmartRouter] Dashboard: http://{LISTEN_HOST}:{LISTEN_PORT}/gestalt/ui")
     uvicorn.run(app, host=LISTEN_HOST, port=LISTEN_PORT)
 
 

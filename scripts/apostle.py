@@ -11,13 +11,19 @@ Usage:
   apostle sync          → reconcile missing models
   apostle peers         → list known peers
   apostle catalog       → show model catalog filtered by this node
+  apostle serve         → start HTTP API + dashboard (default port 40116)
+  apostle serve --port N → start on custom port
 """
 
+import http.server
 import json
 import os
 import re
+import socket
+import socketserver
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -35,6 +41,7 @@ MODELS_YAML = SCRIPT_DIR / "models.yaml"
 OLLA_YAML = PROJECT_DIR / "proxy" / "olla.yaml"
 OLLAMA_PORT = 11434
 OLLA_PORT = 40114
+APOSTLE_PORT = int(os.environ.get("APOSTLE_PORT", "40116"))
 
 # ── Colour ──────────────────────────────────────────────────────────────────
 def c(text, code):
@@ -240,31 +247,16 @@ def ollama_data_dir():
 
 
 def fetch_manifest_from_peer(model_name, peer_host):
-    """Read a model's manifest JSON from a peer via SSH cat.
+    """Fetch a model's manifest from a peer Apostle HTTP endpoint.
+    Falls back to direct Ollama blob API if peer doesn't run Apostle yet.
     Returns parsed manifest dict, or None."""
-    name, tag = (model_name.split(":", 1) + [""])[:2]
-    if not tag:
-        tag = "latest"
-
-    manifest_path = (
-        f"~/.ollama/models/manifests/registry.ollama.ai/library/{name}/{tag}"
-    )
-    alt_path = (
-        f"/usr/share/ollama/.ollama/models/manifests/registry.ollama.ai/"
-        f"library/{name}/{tag}"
-    )
-
-    for path in [manifest_path, alt_path]:
-        try:
-            result = subprocess.run(
-                ["ssh", peer_host, "cat", path],
-                capture_output=True, text=True, timeout=10
-            )
-            if result.returncode == 0 and result.stdout.strip():
-                return json.loads(result.stdout)
-        except (subprocess.CalledProcessError, FileNotFoundError, json.JSONDecodeError,
-                OSError):
-            continue
+    # Try Apostle HTTP API first (no SSH required)
+    url = f"http://{peer_host}:{APOSTLE_PORT}/apostle/v1/manifest/{model_name}"
+    try:
+        resp = urllib.request.urlopen(url, timeout=10)
+        return json.loads(resp.read().decode())
+    except (urllib.error.URLError, json.JSONDecodeError, OSError):
+        pass
     return None
 
 
@@ -300,7 +292,7 @@ def acquire_from_peer(model_name, peer_host):
 
     manifest = fetch_manifest_from_peer(model_name, peer_host)
     if not manifest:
-        print(f"  {warn('~')} Cannot read manifest via SSH from {peer_host}")
+        print(f"  {warn('~')} Cannot read manifest from {peer_host} (peer may not run Apostle yet)")
         return None
 
     man_dir = manifests_dir / "registry.ollama.ai" / "library" / name
@@ -428,16 +420,170 @@ def sync(desired, current, peers):
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# 6. Config Writer (Phase 1 placeholder)
+# 6. Config Writer
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 def update_olla_config(peers):
-    print(f" {dim('→')} Config update: olla.yaml regeneration not yet automated")
-    pass
+    gen_script = PROJECT_DIR / "scripts" / "generate-olla-config.sh"
+    if gen_script.exists():
+        try:
+            subprocess.run(["bash", str(gen_script)], check=True, timeout=30)
+            print(f" {ok('✓')} olla.yaml regenerated")
+        except subprocess.CalledProcessError:
+            print(f" {fail('✗')} olla.yaml regeneration failed")
+    else:
+        print(f" {dim('→')} Config update: olla.yaml regeneration not yet automated")
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# 7. CLI
+# 7. HTTP API Server  (apostle serve)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+class _ApostleHandler(http.server.BaseHTTPRequestHandler):
+    def log_message(self, format, *args):
+        pass  # suppress default per-request logging
+
+    def _json(self, data, status=200):
+        body = json.dumps(data, indent=2).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_GET(self):
+        url_path = self.path.split("?")[0].rstrip("/")
+        url_path = url_path.replace("%3A", ":").replace("%3a", ":")
+
+        if url_path == "/apostle/v1/status":
+            self._handle_status()
+        elif url_path == "/apostle/v1/cluster":
+            self._handle_cluster()
+        elif url_path.startswith("/apostle/v1/manifest/"):
+            self._handle_manifest(url_path[len("/apostle/v1/manifest/"):])
+        elif url_path in ("/health", "/apostle/health"):
+            self._json({"status": "ok", "hostname": socket.gethostname()})
+        else:
+            self._json({"error": "not found"}, 404)
+
+    def _handle_status(self):
+        hw = introspect()
+        cat = load_catalog() if MODELS_YAML.exists() else []
+        desired = select_models(cat, hw) if cat else []
+        current = local_models()
+        node_profile = profile(hw)
+        desired_names = {normalize_name(m["name"]) for m in desired}
+        self._json({
+            "hostname": socket.gethostname(),
+            "profile": node_profile,
+            "hardware": hw,
+            "models": {
+                "desired": [m["name"] for m in desired],
+                "local": list(current.keys()),
+                "missing": sorted(desired_names - set(current.keys())),
+            },
+            "timestamp": time.time(),
+        })
+
+    def _handle_cluster(self):
+        hw = introspect()
+        cat = load_catalog() if MODELS_YAML.exists() else []
+        desired = select_models(cat, hw) if cat else []
+        current = local_models()
+        peers = discover_peers()
+        node_profile = profile(hw)
+
+        local_node = {
+            "hostname": socket.gethostname(),
+            "profile": node_profile,
+            "models": list(current.keys()),
+            "status": "local",
+        }
+
+        peer_nodes = []
+        for p in peers:
+            node = {
+                "hostname": p.get("host", ""),
+                "url": p.get("url", ""),
+                "models": p.get("models", []),
+                "status": p.get("status", "unknown"),
+                "apostle": None,
+            }
+            try:
+                aurl = f"http://{p['host']}:{APOSTLE_PORT}/apostle/v1/status"
+                resp = urllib.request.urlopen(aurl, timeout=3)
+                node["apostle"] = json.loads(resp.read().decode())
+            except (urllib.error.URLError, json.JSONDecodeError, OSError):
+                pass
+            peer_nodes.append(node)
+
+        all_models: set = set(current.keys())
+        for p in peers:
+            all_models.update(p.get("models", []))
+
+        self._json({
+            "coordinator": socket.gethostname(),
+            "nodes": [local_node] + peer_nodes,
+            "cluster": {
+                "node_count": 1 + len(peers),
+                "total_models": len(all_models),
+                "healthy_peers": sum(
+                    1 for p in peers if p.get("status") == "healthy"
+                ),
+            },
+            "timestamp": time.time(),
+        })
+
+    def _handle_manifest(self, model_name):
+        if not model_name:
+            self._json({"error": "model name required"}, 400)
+            return
+        name, tag = (model_name.split(":", 1) + [""])[:2]
+        if not tag:
+            tag = "latest"
+        for base in [
+            Path.home() / ".ollama" / "models",
+            Path("/usr/share/ollama/.ollama/models"),
+        ]:
+            candidate = (
+                base / "manifests" / "registry.ollama.ai" / "library" / name / tag
+            )
+            if candidate.exists():
+                try:
+                    with open(candidate) as f:
+                        self._json(json.load(f))
+                    return
+                except (OSError, json.JSONDecodeError):
+                    pass
+        self._json({"error": f"manifest not found: {model_name}"}, 404)
+
+
+class _ThreadedServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
+    allow_reuse_address = True
+    daemon_threads = True
+
+
+def cmd_serve(port=None):
+    if port is None:
+        port = APOSTLE_PORT
+    server = _ThreadedServer(("", port), _ApostleHandler)
+    hostname = socket.gethostname()
+    print(f"\n {head('Apostle')} HTTP API · {hostname} · port {port}")
+    print(f"  {dim('Status:')}   http://localhost:{port}/apostle/v1/status")
+    print(f"  {dim('Cluster:')}  http://localhost:{port}/apostle/v1/cluster")
+    print(f"  {dim('Manifest:')} http://localhost:{port}/apostle/v1/manifest/<model>")
+    print(f"  {dim('Health:')}   http://localhost:{port}/health")
+    print(f"\n  {dim('Press Ctrl+C to stop')}\n")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print(f"\n {ok('✓')} Server stopped")
+        server.server_close()
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 8. CLI
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 def cmd_status():
@@ -538,8 +684,15 @@ def main():
         cmd_peers()
     elif cmd == "catalog":
         cmd_catalog()
+    elif cmd == "serve":
+        port = None
+        if "--port" in sys.argv:
+            idx = sys.argv.index("--port")
+            if idx + 1 < len(sys.argv):
+                port = int(sys.argv[idx + 1])
+        cmd_serve(port)
     else:
-        print(f"Usage: {sys.argv[0]} {{status|sync|peers|catalog}}")
+        print(f"Usage: {sys.argv[0]} {{status|sync|peers|catalog|serve [--port N]}}")
         sys.exit(1)
 
 

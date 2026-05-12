@@ -146,10 +146,37 @@ services:
     networks:
       - ai-net
 
+  # ── Apostle — self-managing cluster node + observable dashboard ─────────────
+  # Introspects hardware, manages model inventory, discovers peers, and serves
+  # the gestalt cluster dashboard.
+  # Dashboard: http://localhost:40116/gestalt/ui
+  # Status:    http://localhost:40116/apostle/v1/status
+  apostle:
+    build:
+      context: .
+      dockerfile: scripts/Dockerfile.apostle
+    container_name: apostle
+    restart: unless-stopped
+    ports:
+      - "${APOSTLE_PORT:-40116}:40116"
+    volumes:
+      - ${OLLAMA_DATA:-/home/user/.ollama}/models:/root/.ollama/models:ro
+      - ./.env:/app/.env:ro
+      - /proc/meminfo:/proc/meminfo:ro
+    environment:
+      - APOSTLE_PORT=40116
+      - OLLA_URL=http://olla:40114
+    depends_on:
+      olla:
+        condition: service_healthy
+    networks:
+      - ai-net
+
   # ── Smart Model Router — content-based model selection ──────────────────
   # Sits between OpenCode and Olla. Classifies queries and auto-selects the
   # best local model. Cloud model requests pass through unchanged.
   # Point OpenCode's Olla provider at http://localhost:40115.
+  # Gestalt UI: http://localhost:40115/gestalt/ui
   router:
     build: ./router
     container_name: router
