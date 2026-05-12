@@ -28,20 +28,20 @@ Every node running ai-stack is a member of a **peer-to-peer AI mesh**. Nodes dis
 
 ```mermaid
 graph TB
-    subgraph Node A — Server 32GB
+    subgraph NodeA["Node A - Server 32GB"]
         OA[Ollama :11434]
         AP_A[Apostle :40116]
         RO_A[Router :40115]
         OL_A[Olla :40114]
     end
 
-    subgraph Node B — Desktop 16GB
+    subgraph NodeB["Node B - Desktop 16GB"]
         OB[Ollama :11434]
         AP_B[Apostle :40116]
         OL_B[Olla :40114]
     end
 
-    subgraph Node C — Laptop 8GB
+    subgraph NodeC["Node C - Laptop 8GB"]
         OC[Ollama :11434]
         AP_C[Apostle :40116]
     end
