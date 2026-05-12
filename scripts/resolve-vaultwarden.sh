@@ -90,7 +90,9 @@ bw_login() {
                 return 1
             fi
         else
-            echo "✗ Vault is locked. Set VAULT_MASTER_PASSWORD or run 'bw unlock' manually."
+            echo "✗ Vault is locked. Unlock and export the session token, then retry:"
+            echo "    export BW_SESSION=\$(bw unlock --raw)"
+            echo "    ./install.sh"
             return 1
         fi
     else
