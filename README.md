@@ -90,7 +90,9 @@ The router view (`/gestalt/ui`) shows a live feed of every routing decision — 
 
 > **To see these in action:** `docker compose up -d --build` → open `http://localhost:40116/ui` → send a query from OpenCode → watch the routing decision appear in the gestalt view simultaneously.
 
-<!-- Screenshots: add docs/assets/cluster-dashboard.png and docs/assets/router-gestalt.png when available -->
+![Apostle cluster dashboard simulation](docs/assets/cluster-demo.svg)
+
+> *Simulated view — run the stack to see your actual cluster topology.*
 
 ---
 
