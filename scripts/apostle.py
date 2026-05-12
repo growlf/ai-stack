@@ -36,7 +36,7 @@ except ImportError:
 
 SCRIPT_DIR = Path(__file__).parent.resolve()
 PROJECT_DIR = SCRIPT_DIR.parent
-ENV_FILE = PROJECT_DIR / ".env"
+ENV_FILE = Path(os.environ.get("APOSTLE_ENV_FILE", str(PROJECT_DIR / ".env")))
 MODELS_YAML = SCRIPT_DIR / "models.yaml"
 OLLA_YAML = PROJECT_DIR / "proxy" / "olla.yaml"
 OLLAMA_PORT = 11434
@@ -195,8 +195,11 @@ def load_env_peers():
     return peers
 
 
-def ollama_api(host, path, timeout=5):
-    url = f"http://{host}:{OLLAMA_PORT}{path}"
+def ollama_api(host_or_url, path, timeout=5):
+    if host_or_url.startswith("http"):
+        url = f"{host_or_url}{path}"
+    else:
+        url = f"http://{host_or_url}:{OLLAMA_PORT}{path}"
     try:
         resp = urllib.request.urlopen(url, timeout=timeout)
         return json.loads(resp.read().decode())
