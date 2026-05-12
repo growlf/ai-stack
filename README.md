@@ -24,7 +24,7 @@ ai-stack turns one or more machines into a **unified AI cluster** — local mode
 
 ## The Vision — Project Apostle
 
-Every node running ai-stack is a member of a **peer-to-peer AI mesh**. Nodes discover each other, share model catalogs, and distribute work based on hardware capability. When a model is missing, Apostle fetches it from the fastest peer — or pulls it from the registry if no peer has it yet. The cluster heals itself without any central coordinator.
+Every node running ai-stack is a member of a **peer-to-peer AI mesh**. Nodes discover each other, share model catalogs, and distribute work based on hardware capability. When a model is missing, Apostle fetches it from a peer that has it — or pulls it from the registry if no peer has it yet. The cluster heals itself without any central coordinator.
 
 ```mermaid
 graph TB
@@ -191,7 +191,7 @@ Apostle is a lightweight agent that runs on every node. It:
 1. **Introspects** — reads RAM, GPU, disk, and Ollama version to build a hardware profile
 2. **Selects** — chooses the right models from `scripts/models.yaml` based on available resources
 3. **Discovers** — finds peer nodes via `OLLAMA_REMOTE_*` env vars (mDNS discovery coming in Phase 4)
-4. **Syncs** — fetches missing model blobs from the fastest available peer; falls back to registry
+4. **Syncs** — fetches missing model blobs from a peer that has the model; falls back to registry
 5. **Heals** — background daemon detects gaps and fills them during low-resource windows
 6. **Observes** — serves a live D3 cluster dashboard at `:40116/ui`
 
@@ -207,10 +207,25 @@ Apostle is a lightweight agent that runs on every node. It:
 ### Guardrails
 
 Apostle checks before every pull:
-- Available disk space (configurable threshold)
-- Current system load (defers during high CPU/RAM usage)
-- Cluster-wide download state (joins an in-progress pull rather than duplicating)
-- Maintenance mode flag (`APOSTLE_MAINTENANCE=1`)
+- Available disk space — skips if usage exceeds `APOSTLE_MAX_DISK_PCT` (default 85%)
+- Off-hours scheduling — large registry pulls (`> MAX_AUTO_PULL_GB`, default 10 GB) defer until the configured quiet window
+- Cluster-wide download deduplication — waits if a peer is already pulling the same model
+- Maintenance mode — set `APOSTLE_MAINTENANCE=1` to pause all automatic pulls
+
+### Self-healing daemon (Phase 3)
+
+The background sync daemon starts automatically with `apostle serve`. Key env vars:
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `APOSTLE_SYNC_INTERVAL` | `1800` | Seconds between background sync cycles |
+| `APOSTLE_MAX_DISK_PCT` | `85` | Disk usage % above which pulls are skipped |
+| `MAX_AUTO_PULL_GB` | `10` | Registry pulls above this size defer to off-hours |
+| `APOSTLE_OFFHOURS_START` | `22` | Hour (0–23) when the off-hours window begins |
+| `APOSTLE_OFFHOURS_END` | `6` | Hour (0–23) when the off-hours window ends |
+| `APOSTLE_MAINTENANCE` | *(unset)* | Set to `1` to pause all automatic pulls |
+
+Sync status: `GET /apostle/v1/sync` — returns last run time, in-progress models, skipped reasons. Manual trigger: `POST /apostle/v1/sync`.
 
 ---
 
@@ -253,7 +268,7 @@ docker compose restart olla
 | [Smart router](docs/smart-router.md) | How model routing works |
 | [Model guide](docs/model-guide.md) | Choosing and managing models |
 | [Cloud models](docs/cloud-models.md) | Configuring Claude, Gemini, OpenAI |
-| [Hardware](docs/getting-started.md) | GPU setup (Arc, NVIDIA, CPU) |
+| [Hardware](docs/hardware.md) | GPU setup (Arc, NVIDIA, CPU) |
 | [Troubleshooting](docs/troubleshooting.md) | Common issues and fixes |
 
 ---
