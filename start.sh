@@ -42,13 +42,14 @@ if [[ ! -f .env ]]; then
 fi
 
 # ── 2. Resolve VaultWarden placeholders (if any) ──────────────────────
-if grep -q '<vaultwarden:' "${SCRIPT_DIR}/.env" 2>/dev/null \
-    && [[ -z "${BW_SESSION:-}" ]] && [[ -z "${VAULT_MASTER_PASSWORD:-}" ]]; then
-  echo "  Your .env has VaultWarden secrets — unlock first:"
-  echo "    export BW_SESSION=\$(bw unlock --raw)"
-  echo "    ./start.sh"
+if grep -v '^[[:space:]]*#' "${SCRIPT_DIR}/.env" 2>/dev/null | grep -q '<vaultwarden:'; then
+  if [[ -z "${BW_SESSION:-}" ]] && [[ -z "${VAULT_MASTER_PASSWORD:-}" ]]; then
+    echo "  Your .env has VaultWarden secrets — unlock first:"
+    echo "    export BW_SESSION=\$(bw unlock --raw)"
+    echo "    ./start.sh"
+  fi
+  bash "${SCRIPT_DIR}/scripts/resolve-vaultwarden.sh"
 fi
-bash "${SCRIPT_DIR}/scripts/resolve-vaultwarden.sh"
 
 # ── 3. Generate olla.yaml from .env ───────────────────────────────────
 bash "${SCRIPT_DIR}/scripts/generate-olla-config.sh"
