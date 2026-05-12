@@ -149,9 +149,9 @@ services:
   # ─── Apostle — cluster brain + observable dashboard ───────────────────────
   # Introspects hardware, discovers peers, manages model inventory.
   # Serves live D3.js cluster dashboard and JSON status API.
-  # Dashboard: http://localhost:40116/
+  # Dashboard: http://localhost:40116/ui
+  # Status:    http://localhost:40116/apostle/v1/status
   # Cluster:   http://localhost:40116/apostle/v1/cluster
-  # Events:    http://localhost:40116/apostle/v1/events  (SSE)
   apostle:
     build: ./apostle
     container_name: apostle
