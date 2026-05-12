@@ -59,7 +59,7 @@ You don't interact with Olla directly — OpenCode and the smart router use it a
 
 The smart router (`router/smart_model_router.py`) looks at every request before it reaches Olla and picks the best model for the job. If you ask a coding question, it routes to the code model. If you ask a reasoning question, it routes to the reasoning model. If your request includes tool definitions (like searching your vault), it routes to a model that supports tool calling.
 
-This happens in under a millisecond and is invisible to you.
+Classification uses a small dedicated model (qwen2.5:1.5b) and adds ~100–500ms per request — still fast enough to feel instant.
 
 ### 5. Retriever — the note searcher
 
@@ -96,7 +96,7 @@ You need a reasonably modern computer with Linux. The more RAM you have, the lar
 |-----|----------------|
 | 16 GB | 7B models (Mistral 7B, Llama 3.1 8B) — functional but limited |
 | 32 GB | 14B models (Qwen 14B, DeepSeek-R1 14B) — solid for development work |
-| 48 GB+ | 27B models (Gemma4 27B) — high-quality output, handles complex tasks |
+| 48 GB+ | 27B models (Gemma3 27B) — high-quality output, handles complex tasks |
 
 If you have an Intel Arc iGPU (found in Intel Core Ultra processors), the stack has specific support for using it to accelerate inference. Nvidia and AMD GPUs work through standard Ollama. CPU-only also works — slower, but functional.
 

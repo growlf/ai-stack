@@ -199,3 +199,42 @@ curl http://localhost:40115/v1/router/capabilities
 ```
 
 The smart router only routes to models that are available on at least one connected node. If a model is pulled on the remote machine but not the local one, the router will still use it — Olla handles the routing to wherever it lives.
+
+---
+
+## Self-aware model sync (Apostle)
+
+The Apostle (`scripts/apostle.py`) is a hardware-aware peer-to-peer model sync agent. Unlike `sync-models.sh` (which pushes from cluster-llm to spokes via rsync), the Apostle runs on each node and autonomously decides what to sync based on:
+
+- **Hardware fit**: checks RAM/disk capacity and profile (desktop/laptop/ultra-light)
+- **Peer discovery**: reads `OLLAMA_REMOTE_*` from `.env` to find peers
+- **Model catalog**: `scripts/models.yaml` tags each model with RAM requirements, tool support, priority, and role
+
+### Workflow
+
+```
+apostle status     → show local models + peer models + recommendations
+apostle sync       → reconcile: pull missing models from peers (HTTP blob transfer)
+apostle peers      → list known peers and their model inventory
+apostle catalog    → show which models fit this node's hardware
+```
+
+### Blob transfer
+
+The Apostle avoids SSH for bulk data. It:
+
+1. **SSH** into each peer to read the Ollama manifest (~1KB per model)
+2. **HTTP** `GET /api/blobs/<digest>` to download model blobs directly from the peer's Ollama API
+3. Writes the manifest locally — Ollama picks it up on next `list`
+
+This means model syncing happens at LAN speed between nodes, with no bottleneck through a central relay.
+
+### When to use Apostle vs sync-models.sh
+
+| Scenario | Tool |
+|---|---|
+| Initial cluster population from cluster-llm | `sync-models.sh` (rsync, push-based) |
+| Ongoing self-maintenance per node | `apostle sync` (pull-based, autonomous) |
+| One-shot sync of all nodes | `sync-models.sh` |
+| Selective hardware-aware sync | `apostle catalog` + `apostle sync` |
+| Nightly cron-based sync | `pull_ollama_nodes.sh` (Docker-native pull) |

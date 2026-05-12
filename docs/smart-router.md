@@ -5,31 +5,34 @@ The smart router (`router/smart_model_router.py`) sits between OpenCode and Olla
 ## What it does
 
 1. Inspects the incoming request
-2. If the request contains tool definitions, routes to the designated tools-capable model
-3. Otherwise, classifies the message content using keyword patterns and routes to the model best suited for that task
-4. Verifies the selected model is actually loaded and capable before routing
-5. Falls back gracefully if the preferred model is unavailable
+2. Classifies the message content using a small LLM (`qwen2.5:1.5b`) to determine the task category
+3. Routes to the model best suited for that task
+4. If the request contains tool definitions and the task is `scripting`, routes to a tool-capable model
+5. Verifies the selected model is actually loaded before routing — falls back gracefully if unavailable
 
 ## Routing logic
 
-### Tool requests (highest priority)
+### Classification
 
-If the request body contains a `tools` or `functions` field, the router bypasses content classification entirely and routes directly to the tools model (`mistral-small3.2:24b` by default). This prevents tool-call failures on reasoning models like `deepseek-r1` that don't support the tools API.
+The router sends the user's message to a dedicated classifier model (`qwen2.5:1.5b`) with a system prompt that categorizes into exactly one of:
 
-### Content classification
+| Category | Description | Routes to |
+|----------|-------------|-----------|
+| `scripting` | Code, bash, yaml, config, debugging, automation | `qwen2.5-coder:14b` |
+| `reasoning` | Analysis, explanation, comparison, architecture, math | `deepseek-r1:14b` |
+| `longform` | Summarization, document writing, editing, reports | `gemma3:12b` |
+| `default` | General conversation, file questions, system queries, anything else | `qwen2.5:7b` |
 
-For requests without tools, the router scores the message against keyword patterns:
+The message is capped at 1000 characters for classification.
 
-| Category | Patterns match | Routes to |
-|----------|---------------|-----------|
-| `tools` | tool, function, schema, json, api call | `mistral-small3.2:24b` |
-| `reasoning` | why, analyze, explain, root cause, decision | `deepseek-r1:14b` |
-| `code` | script, bash, python, docker, yaml, config | `qwen2.5-coder:14b` |
-| `diagnostic` | log, error, service, process, permission | `qwen2.5:14b` |
-| `longform` | summarize, document, report, long | `gemma3:12b` |
-| `default` | (no strong match) | `qwen3.5:14b` |
+### Tool requests
 
-The message is capped at 500 characters for classification — long documents are classified on their opening content.
+If the request contains `tools` or `functions`, the router:
+1. Classifies the message normally (to understand what the user wants)
+2. If the task is `scripting`, replaces the selected model with the tool-capable model (`llama3.1:8b`)
+3. If the selected model doesn't support tools, falls back to `qwen2.5:14b` (the largest tool-capable model available)
+
+This prevents tool-call failures on reasoning models like `deepseek-r1` that don't support the tools API, while still using the classifier to understand the request context.
 
 ### Capability verification
 
@@ -37,7 +40,7 @@ Before routing, the router checks the capability registry to confirm:
 - The selected model is currently loaded in Ollama
 - The model supports the required features (tools, etc.)
 
-If the model isn't available or capable, the router falls back to the `default` model.
+If the model isn't available, the router falls back to any available model (using `best_available()`), with a final fallback to the `default` model.
 
 ## Capability registry
 
@@ -69,18 +72,16 @@ Response includes `models_loaded` count and `registry_stale` flag.
 
 ## Latency profile
 
-The router adds negligible latency to each request:
+Classification uses a small dedicated model (`qwen2.5:1.5b`), not the main task model. Expected latency:
 
 | Step | Cost |
 |------|------|
 | Tools/functions check | nanoseconds (dict key lookup) |
-| Content classification | sub-millisecond (compiled regex on ≤500 chars) |
+| LLM classification | ~100–500ms (qwen2.5:1.5b inference, kept resident) |
 | Capability registry lookup | nanoseconds (in-memory dict) |
 | JSON encode/decode | unavoidable proxy overhead |
 
-**Total per-request overhead: well under 1ms.** The capability registry refresh happens in the background every 5 minutes — never on the hot path.
-
-The startup registry load (one Olla API call) adds ~100ms to first startup. After that, routing decisions are pure in-memory.
+**Total per-request overhead: ~100–500ms.** This is higher than the previous regex-based classifier, but the classification is more accurate and adaptive. The classifier model is kept resident via `OLLAMA_KEEP_ALIVE=-1` so there's no cold-start penalty for individual requests.
 
 ## Configuration
 
@@ -88,11 +89,12 @@ All settings via environment variables in `.env`:
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
+| `CLASSIFY_MODEL` | `qwen2.5:1.5b` | Model used for content classification |
 | `CAPABILITY_REFRESH_INTERVAL` | `300` | Seconds between registry refreshes |
 | `ROUTER_PORT` | `40115` | Port the router listens on |
-| `ENABLE_AUTO_TOOLS` | `false` | Automatically inject available tools into requests going to tool-capable models (planned feature — see below) |
+| `ENABLE_AUTO_TOOLS` | `false` | Automatically inject available tools into requests (planned) |
 
-To change the model assigned to a category, edit the `MODELS` dict at the top of `router/smart_model_router.py`.
+To change the model assigned to a category or the classifier model, edit the `MODELS` and `_CLASSIFY_MODEL` values at the top of `router/smart_model_router.py`.
 
 ---
 
@@ -107,5 +109,3 @@ A planned follow-on feature (`ENABLE_AUTO_TOOLS`) will change this: when routing
 - Injection happens in the router's `handle_request()`, not at the LiteLLM layer
 - The env var defaults to `false` until the feature is tested and stable
 - The model decides whether to invoke tools — injection makes them available, it doesn't force their use
-
-This feature is tracked as a GitHub issue. It is not in the current release.

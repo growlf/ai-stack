@@ -1,21 +1,20 @@
 #!/usr/bin/env python3
 """
 Smart Model Router for Olla
-Auto-routes queries to the best local model based on content analysis.
+Uses qwen2.5:1.5b as a classifier to select the best model for each query.
 Sits between OpenCode and Olla: OpenCode -> Smart Router -> Olla -> ollama-arc
 
 Routing:
-- Diagnostics      -> qwen2.5:14b      (fast, reliable for sysadmin)
+- Diagnostics      -> qwen2.5:1.5b     (small, fast for sysadmin)
 - Scripting/Code   -> qwen2.5-coder:14b (code generation)
 - Reasoning        -> deepseek-r1:14b   (chain-of-thought, no tools)
 - Longform/Logs    -> gemma3:12b        (long context, summaries, no tools)
-- Heavy lifting    -> gemma4:27b        (complex analysis, large context, no tools)
-- Tool calling     -> mistral-small3.2:24b (strong function calling)
-- Default          -> qwen3.5:14b       (improved reasoning, best all-rounder)
+- Heavy lifting    -> gemma3:12b        (complex analysis, large context, no tools)
+- Tool calling     -> llama3.1:8b       (strong function calling)
+- Default          -> qwen2.5:1.5b      (general conversation)
 """
 
 import os
-import re
 import json
 import asyncio
 import time
@@ -31,13 +30,12 @@ LISTEN_PORT = int(os.environ.get("LISTEN_PORT", "40115"))
 CAPABILITY_REFRESH_INTERVAL = int(os.environ.get("CAPABILITY_REFRESH_INTERVAL", "300"))
 
 MODELS = {
-    "diagnostics": "qwen2.5:14b",
     "scripting":   "qwen2.5-coder:14b",
     "reasoning":   "deepseek-r1:14b",
     "longform":    "gemma3:12b",
-    "heavy":       "gemma4:27b",
-    "tools":       "mistral-small3.2:24b",
-    "default":     "qwen3.5:14b",
+    "heavy":       "gemma3:12b",
+    "tools":       "llama3.1:8b",
+    "default":     "qwen2.5:7b",
 }
 
 # Model families known to support / not support tool calling.
@@ -53,52 +51,18 @@ _TOOL_INCAPABLE_FAMILIES = {
     "nomic", "mxbai", "snowflake", "all-minilm",
 }
 
-# Patterns compiled once at import — not on every request.
-# re.search (not findall) is used at runtime: we only need presence, not count.
-_RAW_PATTERNS: dict[str, list[str]] = {
-    "diagnostics": [
-        r"\b(diagnos|health|status|check|monitor|alert|reachable|unreachable|uptime)\b",
-        r"\b(system report|get_all|list models|loaded models|vram)\b",
-        r"\b(is .+ running|is .+ up|is .+ down|ping)\b",
-        r"\b(ollama|open.?webui|pipeline|container|docker)\b",
-        r"\b(gpu|cpu|memory|ram|disk usage)\b",
-        r"\b(logs? file|journal|syslog|dmesg|kern)\b",
-    ],
-    "scripting": [
-        r"\b(script|bash|shell|command|cron|systemd|service|config)\b",
-        r"\b(yaml|compose|dockerfile|ansible|terraform)\b",
-        r"\b(fix|debug|error|traceback|exception|failed|exit code)\b",
-        r"\b(install|setup|configure|deploy|update|upgrade)\b",
-        r"\b(python|javascript|typescript|code|function|class|import)\b",
-        r"\b(write a|create a|generate|implement|refactor)\b.*\b(function|class|script|module)\b",
-    ],
-    "reasoning": [
-        r"\b(why|root cause|explain|analyze|compare|optimize|recommend)\b",
-        r"\b(should i|what would you|best approach|pros and cons|trade.?off)\b",
-        r"\b(performance|bottleneck|slow|latency|memory leak|high cpu)\b",
-        r"\b(architecture|design|strategy|best practice|decouple|refactor)\b",
-        r"\b(math|calculate|derive|proof|theorem|logic|reason)\b",
-    ],
-    "longform": [
-        r"\b(log|logs|summarize|summary|document|report)\b",
-        r"\b(what does this mean|walk me through|step by step|explain this)\b",
-        r"\b(write a|draft a|create a document|generate a report)\b",
-        r"\b(review|proofread|edit|rewrite|format|structure)\b",
-    ],
-    "heavy": [
-        r"\b(analyze this entire|full analysis|comprehensive review)\b",
-        r"\b(large context|long document|big codebase|entire project)\b",
-        r"\b(complex|sophisticated|architectural|system.?wide)\b",
-    ],
-}
+_CLASSIFY_MODEL = os.environ.get("CLASSIFY_MODEL", "qwen2.5:1.5b")
 
-PATTERNS: dict[str, list[re.Pattern]] = {
-    category: [re.compile(p) for p in patterns]
-    for category, patterns in _RAW_PATTERNS.items()
-}
-
-# Cap text fed to classify() — avoids O(n) regex over large payloads
-_CLASSIFY_MAX_CHARS = 500
+_CLASSIFY_SYSTEM_PROMPT = (
+    "Categorize this user message into EXACTLY ONE category:\n"
+    "- scripting: code, bash, yaml, config, debugging, automation — asking to write or run code\n"
+    "- reasoning: analysis, explanation, comparison, architecture, math — complex analytical tasks\n"
+    "- longform: summarization, document writing, editing, reports — extended writing tasks\n"
+    "- default: general conversation, questions about files/directories, asking about the system, or anything else\n"
+    "IMPORTANT: Questions about files, directories, paths, or the local environment are ALWAYS 'default'.\n"
+    "Simple greetings like 'hi' are ALWAYS 'default'.\n"
+    "Reply with ONLY the category name."
+)
 
 
 @dataclass
@@ -175,6 +139,13 @@ class CapabilityRegistry:
                 return name
         return None
 
+    def best_available(self, exclude: str = "") -> Optional[str]:
+        """Return any available model, optionally excluding a specific name."""
+        for name in self._registry:
+            if name != exclude:
+                return name
+        return None
+
     @property
     def stale(self) -> bool:
         return (time.monotonic() - self._last_refresh) > CAPABILITY_REFRESH_INTERVAL
@@ -198,18 +169,28 @@ async def lifespan(app: FastAPI):
     task.cancel()
 
 
-def classify(text: str) -> Tuple[str, str]:
-    # Cap length before regex — avoids O(n) work on large payloads
-    t = text[:_CLASSIFY_MAX_CHARS].lower()
-    best_category = "default"
-    best_score = 0
-    for category, compiled in PATTERNS.items():
-        # re.search (not findall) — presence check is enough, avoids collecting all matches
-        score = sum(1 for p in compiled if p.search(t))
-        if score > best_score:
-            best_score = score
-            best_category = category
-    return MODELS[best_category], best_category
+async def classify(text: str) -> Tuple[str, str]:
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(15.0)) as client:
+            resp = await client.post(
+                f"{OLLA_URL}/olla/ollama/v1/chat/completions",
+                json={
+                    "model": _CLASSIFY_MODEL,
+                    "messages": [
+                        {"role": "system", "content": _CLASSIFY_SYSTEM_PROMPT},
+                        {"role": "user", "content": text[:1000]},
+                    ],
+                    "temperature": 0,
+                    "max_tokens": 10,
+                },
+            )
+            resp.raise_for_status()
+            category = resp.json()["choices"][0]["message"]["content"].strip().lower()
+            if category in MODELS:
+                return MODELS[category], category
+    except Exception as exc:
+        print(f"[SmartRouter] Classifier call failed ({exc}) — using default")
+    return MODELS["default"], "default"
 
 
 def _parse_body(body: bytes) -> Optional[dict]:
@@ -251,7 +232,11 @@ async def handle_request(data: dict) -> dict:
 
     needs_tools = bool(data.get("tools") or data.get("functions"))
 
-    if needs_tools:
+    # Always classify first — don't short-circuit on tool presence alone
+    model, reason = await classify(user_message)
+
+    # Only force the tools model when tools are needed for the task
+    if needs_tools and reason == "scripting":
         preferred = MODELS["tools"]
         if not registry.supports_tools(preferred):
             fallback = registry.best_tools_model()
@@ -261,13 +246,17 @@ async def handle_request(data: dict) -> dict:
             else:
                 print(f"[SmartRouter] WARNING: no tool-capable model available; "
                       f"sending {preferred} anyway (may fail)")
-        model, reason = preferred, "tools"
-    else:
-        model, reason = classify(user_message)
-        if not registry.is_available(model):
-            fallback = MODELS["default"]
-            print(f"[SmartRouter] {model} not available, falling back to {fallback}")
-            model, reason = fallback, f"fallback ({reason})"
+        model, reason = preferred, f"tools ({reason})"
+
+    if needs_tools and not registry.supports_tools(model):
+        fallback = "qwen2.5:14b"
+        print(f"[SmartRouter] {model} does not support tools, falling back to {fallback}")
+        model, reason = fallback, f"tools-fallback ({reason})"
+
+    if not registry.is_available(model):
+        fallback = registry.best_available(exclude=model) or MODELS["default"]
+        print(f"[SmartRouter] {model} not available, falling back to {fallback}")
+        model, reason = fallback, f"fallback ({reason})"
 
     data["model"] = model
     print(f"[SmartRouter] '{user_message[:80]}' -> {model} ({reason})")

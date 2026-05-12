@@ -15,14 +15,15 @@
 #   OLLAMA_REMOTE_WORKSTATION=http://192.168.1.50:11434:75
 #   OLLAMA_REMOTE_NAS=http://192.168.1.51:11434
 #
-# Fixed nodes (always present, not configurable):
-#   priority 100 — ollama   (local Ollama node — Arc, NVIDIA, or CPU depending on overlay)
-#   priority  50 — litellm      (cloud gateway: Claude, Gemini)
+# Fixed nodes (always present, configurable priority):
+#   priority 70 (default) — ollama  (local Ollama node — Arc, NVIDIA, or CPU)
+#   priority 50           — litellm (cloud gateway: Claude, Gemini)
 #
 # Advanced tuning (optional .env vars):
-#   OLLA_ENGINE           — "sherpa" (default) or "olla"
-#   OLLA_LOAD_BALANCER    — "least-connections" (default), "round-robin", "priority"
-#   OLLA_REQUEST_LOGGING  — true (default) or false
+#   OLLA_ENGINE            — "sherpa" (default) or "olla"
+#   OLLA_LOAD_BALANCER     — "least-connections" (default), "round-robin", "priority"
+#   OLLA_REQUEST_LOGGING   — true (default) or false
+#   OLLA_LOCAL_PRIORITY    — local Ollama node priority (default: 70)
 
 set -euo pipefail
 
@@ -50,6 +51,7 @@ fi
 OLLA_ENGINE="${OLLA_ENGINE:-sherpa}"
 OLLA_LOAD_BALANCER="${OLLA_LOAD_BALANCER:-least-connections}"
 OLLA_REQUEST_LOGGING="${OLLA_REQUEST_LOGGING:-true}"
+OLLA_LOCAL_PRIORITY="${OLLA_LOCAL_PRIORITY:-70}"
 
 # ── Collect OLLAMA_REMOTE_* entries ────────────────────────────────────────────
 declare -A REMOTE_URLS=()
@@ -108,11 +110,11 @@ discovery:
   static:
     endpoints:
 
-      # ── Local Ollama node (priority 100) ─────────────────
+      # ── Local Ollama node (priority ${OLLA_LOCAL_PRIORITY}) ─────────────────
       - url: "http://ollama:11434"
         name: "ollama"
         type: "ollama"
-        priority: 100
+        priority: ${OLLA_LOCAL_PRIORITY}
         check_interval: 15s
         check_timeout: 5s
 EOF

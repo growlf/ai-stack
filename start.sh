@@ -37,6 +37,19 @@ bash "${SCRIPT_DIR}/scripts/resolve-vaultwarden.sh"
 # ── 3. Generate olla.yaml from .env ───────────────────────────────────
 bash "${SCRIPT_DIR}/scripts/generate-olla-config.sh"
 
-# ── 4. Start the stack ────────────────────────────────────────────────
+# ── 4. Detect GPU and apply overlay ───────────────────────────────────
+GPU_OVERLAY=""
+if [[ -e /dev/dri/renderD128 ]]; then
+  if [[ -f "${SCRIPT_DIR}/docker-compose.arc.yml" ]]; then
+    GPU_OVERLAY="-f docker-compose.yml -f docker-compose.arc.yml"
+    echo "→ Intel GPU detected — using Arc GPU overlay"
+  fi
+fi
+
+# ── 5. Start the stack ────────────────────────────────────────────────
 echo "→ Starting stack..."
-docker compose up "$@"
+if [[ -n "$GPU_OVERLAY" ]]; then
+  docker compose $GPU_OVERLAY up "$@"
+else
+  docker compose up "$@"
+fi

@@ -148,8 +148,21 @@ docker logs retriever --tail=30 -f
 
 ```bash
 docker exec ollama-arc ollama pull nomic-embed-text:latest
-docker exec ollama-arc ollama pull qwen3.5:14b
+docker exec ollama-arc ollama pull qwen3.5:27b
 ```
+
+### Self-aware model sync (Apostle)
+
+The Apostle (`scripts/apostle.py`) is a hardware-aware peer-to-peer model sync agent. It runs on each node and autonomously decides what to sync based on hardware fit, peer discovery, and the model catalog:
+
+```bash
+./scripts/apostle.py status    # cluster health + model inventory
+./scripts/apostle.py sync      # reconcile missing models from peers
+./scripts/apostle.py peers     # list known peers and their models
+./scripts/apostle.py catalog   # show which models fit this node
+```
+
+See [docs/multi-machine.md](multi-machine.md) for the full Apostle workflow.
 
 ### Add a remote Ollama node
 

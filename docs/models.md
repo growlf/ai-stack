@@ -5,12 +5,12 @@
 | Model | Size (RAM) | Tools | Use case |
 |-------|-----------|-------|----------|
 | `mistral-small3.2:24b` | ~15 GB | yes | Function calling, 128K context, strong instruction following |
-| `qwen3.5:14b` | ~8.5 GB | yes | General default — reasoning + tool calling |
+| `qwen3.5:27b` | ~17 GB | yes | General default — reasoning + tool calling |
 | `qwen2.5:14b` | ~8.3 GB | yes | Diagnostics, sysadmin, structured output |
 | `qwen2.5-coder:14b` | ~8.3 GB | yes | Code, scripts, configs, debugging |
 | `deepseek-r1:14b` | ~8.3 GB | **no** | Complex reasoning, root cause analysis — no tool support |
 | `gemma3:12b` | ~7.8 GB | **no** | Long log analysis, summaries, documentation |
-| `gemma4:27b` | ~16 GB | **no** | Heavy lifting, large context — load on demand |
+| `gemma3:27b` | ~17 GB | **no** | Heavy lifting, large context — load on demand |
 | `nomic-embed-text` | ~274 MB | — | Embeddings for RAG (retriever service) |
 
 ## Tool support
@@ -21,11 +21,22 @@ The smart router handles this automatically — requests with tool definitions a
 
 If you query Ollama directly (bypassing the router), use only tools-capable models for tool-calling requests.
 
+## Apostle auto-selection
+
+The Apostle (`scripts/apostle.py catalog`) uses a RAM-budget algorithm to recommend which models fit a node:
+
+- **Budget**: 70% of total system RAM by default
+- **Laptop cap**: max 8GB per model when `OLLAMA_PROFILE=laptop`
+- **Ultra-light cap**: max 3GB per model when `OLLAMA_PROFILE=ultra-light`
+- **Priority**: models tagged `priority=high` are recommended first, then sorted by role fit
+
+Run `apostle.py catalog` to see what's recommended for the current node based on its hardware and profile.
+
 ## Model selection notes
 
 **`deepseek-r1:14b`** — Chain-of-thought reasoning. Thinks before responding, typically adding 20–60 seconds to response time. Worth it for complex root cause analysis or architectural decisions. Not suitable for quick queries or anything requiring tool calls.
 
-**`gemma4:27b`** — Requires ~16 GB GPU memory. On systems with 32 GB RAM, loading this model alongside others will cause page-outs. Pull on demand rather than keeping resident. Use for tasks that need large context or complex analysis where smaller models underperform.
+**`gemma3:27b`** — Requires ~17 GB GPU memory. On systems with 32 GB RAM, loading this model alongside others will cause page-outs. Pull on demand rather than keeping resident. Use for tasks that need large context or complex analysis where smaller models underperform.
 
 **`qwen2.5-coder:14b`** — Understands YAML, Dockerfiles, systemd units, and bash idioms better than the base `qwen2.5` model. Prefer this for anything involving file structure, shell commands, or configuration.
 
@@ -40,7 +51,7 @@ Ollama loads models into GPU memory on first use and keeps them resident for `OL
 curl http://localhost:11434/api/ps | python3 -m json.tool
 
 # Pull a model
-docker exec ollama ollama pull qwen3.5:14b
+docker exec ollama ollama pull qwen3.5:27b
 
 # List all installed models
 docker exec ollama ollama list
@@ -53,7 +64,7 @@ docker exec ollama ollama rm llama3:8b
 
 ```bash
 docker exec ollama ollama pull mistral-small3.2:24b
-docker exec ollama ollama pull qwen3.5:14b
+docker exec ollama ollama pull qwen3.5:27b
 docker exec ollama ollama pull qwen2.5-coder:14b
 docker exec ollama ollama pull qwen2.5:14b
 docker exec ollama ollama pull deepseek-r1:14b
@@ -61,4 +72,4 @@ docker exec ollama ollama pull gemma3:12b
 docker exec ollama ollama pull nomic-embed-text:latest
 ```
 
-`gemma4:27b` is optional — pull only if your system has 48 GB+ RAM or you have a specific need for it.
+`gemma3:27b` is optional — pull only if your system has 48 GB+ RAM or you have a specific need for it.

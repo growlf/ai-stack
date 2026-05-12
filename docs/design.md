@@ -49,7 +49,7 @@ Olla provides unified routing and load balancing across local Ollama nodes and t
 
 The smart router (`:40115`) sits in front of Olla. It classifies requests and selects models before Olla sees them. This keeps Olla's job simple (load balancing, failover) and puts routing intelligence in one place.
 
-The router is on the critical path for every request. Design constraint: per-request overhead must be sub-millisecond. The current implementation (compiled regex, in-memory capability registry, single JSON parse) meets this. See [docs/smart-router.md](smart-router.md) for the full latency profile.
+The router is on the critical path for every request. Classification uses a small LLM (`qwen2.5:1.5b`) — ~100–500ms per request — but provides more accurate and adaptive routing than the previous regex-based classifier. The classifier model is kept resident to avoid cold-start penalties. See [docs/smart-router.md](smart-router.md) for the full latency profile.
 
 ## Multi-machine architecture
 

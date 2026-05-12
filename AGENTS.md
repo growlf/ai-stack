@@ -26,6 +26,18 @@ sudo systemctl start|stop|restart ai-stack.service
 ./scripts/discover-herd.sh --apply      # write without prompt
 ./scripts/discover-herd.sh --dry-run    # scan only
 
+# Sync models across cluster nodes (LAN speed if SSH keys deployed)
+./scripts/sync-models.sh                          # sync all nodes
+./scripts/sync-models.sh 10.10.0.212              # sync one node
+./scripts/sync-models.sh --dry-run                # preview only
+./scripts/sync-models.sh --ssh-key ~/.ssh/id_ed25519  # with SSH key
+
+# Self-aware model apostle (hardware-aware peer-to-peer sync)
+./scripts/apostle.py status                       # cluster health + model inventory
+./scripts/apostle.py sync                         # reconcile missing models from peers
+./scripts/apostle.py peers                        # list known peers and their models
+./scripts/apostle.py catalog                      # show which models fit this node
+
 # Discover AI services across all networks (LAN + VPN)
 ./scripts/discover-network.sh                         # interactive
 ./scripts/discover-network.sh 10.10.0.201:11434       # seed(s) as args, prompts
@@ -74,6 +86,9 @@ OpenCode (CLI + Obsidian plugin)
 | `scripts/discover-herd.sh` | mDNS + subnet scan for other Ollama nodes on LAN |
 | `scripts/check-arc-gpu.sh` | GPU pre-flight: detects card0/card1 drift, updates `.env`, used as `ExecStartPre` |
 | `scripts/resolve-vaultwarden.sh` | Resolves `<vaultwarden:path>` placeholders in `.env` via `bw` CLI |
+| `scripts/apostle.py` | Self-aware model apostle — hardware-aware peer-to-peer sync (status/sync/peers/catalog) |
+| `scripts/models.yaml` | Model catalog with 16 entries, RAM/disk/tools/priority/role metadata |
+| `PLANS.md` | Project Apostle full plan — architecture, phases, design decisions |
 | `router/` | Smart Model Router: content-based model selection between OpenCode and Olla |
 | `proxy/litellm_config.yaml` | Static LiteLLM model registry (Claude, Gemini models) |
 

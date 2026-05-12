@@ -1,0 +1,115 @@
+# Model catalog for Apostle — hardware-aware model selection
+# Each model's requirements and role for autonomous node decisions.
+
+models:
+  - name: nomic-embed-text
+    min_ram_gb: 0.5
+    disk_gb: 0.3
+    tools: false
+    priority: critical
+    role: embeddings
+
+  - name: llama3.2:3b
+    min_ram_gb: 2
+    disk_gb: 2
+    tools: true
+    priority: high
+    role: fast
+
+  - name: qwen2.5:0.5b
+    min_ram_gb: 1
+    disk_gb: 0.5
+    tools: true
+    priority: high
+    role: ultra-light
+
+  - name: qwen2.5:1.5b
+    min_ram_gb: 2
+    disk_gb: 1
+    tools: true
+    priority: high
+    role: ultra-light
+
+  - name: qwen2.5:7b
+    min_ram_gb: 5
+    disk_gb: 4.5
+    tools: true
+    priority: medium
+    role: light
+
+  - name: qwen2.5-coder:1.5b-base
+    min_ram_gb: 2
+    disk_gb: 1
+    tools: false
+    priority: low
+    role: light-code
+
+  - name: qwen3.5:14b
+    min_ram_gb: 10
+    disk_gb: 9
+    tools: true
+    priority: high
+    role: general
+
+  - name: qwen2.5:14b
+    min_ram_gb: 10
+    disk_gb: 9
+    tools: true
+    priority: high
+    role: diagnostics
+
+  - name: qwen2.5-coder:14b
+    min_ram_gb: 10
+    disk_gb: 9
+    tools: true
+    priority: high
+    role: code
+
+  - name: deepseek-r1:14b
+    min_ram_gb: 10
+    disk_gb: 9
+    tools: false
+    priority: high
+    role: reasoning
+
+  - name: gemma3:12b
+    min_ram_gb: 9
+    disk_gb: 8
+    tools: false
+    priority: medium
+    role: longform
+
+  - name: llama3.1:8b
+    min_ram_gb: 6
+    disk_gb: 5
+    tools: true
+    priority: medium
+    role: fallback
+
+  - name: mistral:7b
+    min_ram_gb: 5
+    disk_gb: 4
+    tools: true
+    priority: low
+    role: fallback
+
+  - name: mistral-small3.2:24b
+    min_ram_gb: 18
+    disk_gb: 17
+    tools: true
+    priority: medium
+    role: tools-heavy
+
+  - name: qwen2.5:32b-instruct-q3_K_M
+    min_ram_gb: 22
+    disk_gb: 19
+    tools: true
+    priority: low
+    role: heavy
+
+  - name: qwen3.5:27b
+    min_ram_gb: 20
+    disk_gb: 16
+    tools: true
+    priority: low
+    role: heavy
