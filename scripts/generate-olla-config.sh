@@ -44,10 +44,7 @@ if [[ -f "$ENV_FILE" ]]; then
     val="${val#\'}"; val="${val%\'}"
     case "$key" in
       OLLA_*|OLLAMA_REMOTE_*)
-        # Use printf -v instead of eval to avoid shell injection from values
-        # containing special characters like < > | & (e.g. placeholder text)
-        printf -v "$key" '%s' "$val"
-        export "$key"
+        declare -gx "$key=$val"
         ;;
     esac
   done < "$ENV_FILE"
