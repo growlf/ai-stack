@@ -48,8 +48,6 @@ services:
       - OLLAMA_KEEP_ALIVE=-1
     volumes:
       - ${OLLAMA_DATA:-/home/user/.ollama}:/root/.ollama
-      - ${OLLAMA_SSH_KEY:-/dev/null}:/root/.ollama/id_ed25519:ro
-      - ${OLLAMA_SSH_KEY_PUB:-/dev/null}:/root/.ollama/id_ed25519.pub:ro
     ports:
       - "${OLLAMA_PORT:-11434}:11434"
     shm_size: '${OLLAMA_SHM_SIZE:-2gb}'

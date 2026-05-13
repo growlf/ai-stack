@@ -145,18 +145,6 @@ else
 fi
 info "GPU_TYPE=${GPU_TYPE} saved to .env"
 
-# ─── Generate Ollama peer SSH key ─────────────────────────────────────────────
-# Required by docker-compose.yml volume mount: OLLAMA_SSH_KEY_PUB → /root/.ollama/id_ed25519.pub
-# If the file is missing Docker auto-creates a directory and the mount fails.
-OLLAMA_SSH_KEY="${HOME}/.ssh/id_ed25519_ollama"
-if [[ ! -f "${OLLAMA_SSH_KEY}" ]]; then
-    mkdir -p "${HOME}/.ssh"
-    ssh-keygen -t ed25519 -f "${OLLAMA_SSH_KEY}" -N "" -q
-    success "Generated Ollama peer SSH key at ${OLLAMA_SSH_KEY}"
-else
-    success "Ollama peer SSH key already exists at ${OLLAMA_SSH_KEY}"
-fi
-
 # ─── Preflight checks ─────────────────────────────────────────────────────────
 header "Preflight Checks"
 
