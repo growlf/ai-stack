@@ -529,26 +529,35 @@ else
 
     # ── Install bw CLI if missing ──────────────────────────────────────────
     if ! command -v bw &>/dev/null; then
-        info "Installing Bitwarden CLI via npm..."
-        if ! command -v npm &>/dev/null; then
-            info "npm not found — installing Node.js..."
-            if command -v snap &>/dev/null; then
-                sudo snap install node --classic
-            elif command -v apt-get &>/dev/null; then
-                sudo apt-get update -qq && sudo apt-get install -y -qq nodejs npm
-            else
-                warn "Cannot install npm automatically."
-                info "Install Node.js manually, then run: npm install -g @bitwarden/cli"
+        info "Installing Bitwarden CLI..."
+        _bw_ok=false
+        if command -v snap &>/dev/null && sudo snap install bw 2>/dev/null; then
+            success "Bitwarden CLI installed via snap."
+            _bw_ok=true
+        fi
+        if [[ "$_bw_ok" == "false" ]]; then
+            if ! command -v npm &>/dev/null; then
+                info "npm not found — installing Node.js..."
+                if command -v apt-get &>/dev/null; then
+                    sudo apt-get update -qq && sudo apt-get install -y -qq nodejs npm
+                else
+                    warn "Cannot install npm automatically."
+                    info "Install manually: sudo snap install bw"
+                fi
+            fi
+            if command -v npm &>/dev/null; then
+                _npm_prefix="${HOME}/.npm-global"
+                mkdir -p "${_npm_prefix}"
+                if npm install -g @bitwarden/cli --prefix "${_npm_prefix}" 2>/dev/null; then
+                    export PATH="${_npm_prefix}/bin:${PATH}"
+                    success "Bitwarden CLI installed via npm to ${_npm_prefix}."
+                    _bw_ok=true
+                else
+                    warn "npm install failed — try: sudo snap install bw"
+                fi
             fi
         fi
-        if command -v npm &>/dev/null; then
-            npm install -g @bitwarden/cli
-            if command -v bw &>/dev/null; then
-                success "Bitwarden CLI installed."
-            else
-                warn "bw CLI install may need a new shell or PATH update."
-            fi
-        fi
+        unset _bw_ok _npm_prefix
     fi
 
     if ! command -v bw &>/dev/null; then
