@@ -512,7 +512,21 @@ header "Installation Complete"
 OLLA_PORT="${OLLA_PORT:-40114}"
 RETRIEVER_PORT="${RETRIEVER_PORT:-42000}"
 
-echo -e "${GREEN}${BOLD}Stack is running!${RESET}"
+# Verify the ollama container is actually up before claiming success
+if sudo docker inspect --format='{{.State.Status}}' "${OLLAMA_CONTAINER}" 2>/dev/null | grep -q "running"; then
+    echo -e "${GREEN}${BOLD}Stack is running!${RESET}"
+else
+    echo -e "${YELLOW}${BOLD}Installation complete — but the stack did not start cleanly.${RESET}"
+    echo ""
+    echo -e "  Diagnose with:"
+    echo -e "    ${BOLD}sudo systemctl status ai-stack.service${RESET}"
+    echo -e "    ${BOLD}journalctl -xeu ai-stack.service --no-pager | tail -30${RESET}"
+    echo ""
+    echo -e "  Common causes:"
+    echo -e "    • Another Ollama process holds port 11434 — ${BOLD}sudo systemctl stop ollama && sudo systemctl disable ollama${RESET}"
+    echo -e "    • Docker daemon not running — ${BOLD}sudo systemctl start docker${RESET}"
+    echo ""
+fi
 echo ""
 echo -e "  Olla (router): ${BOLD}http://localhost:${OLLA_PORT}${RESET}"
 echo -e "  Retriever:     ${BOLD}http://localhost:${RETRIEVER_PORT}/health${RESET}"
