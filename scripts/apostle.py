@@ -767,7 +767,7 @@ _DASHBOARD_HTML = (
     b"    else if(s.last_run){\n"
     b"      const d=new Date(s.last_run*1000);\n"
     b"      el.textContent=d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});\n"
-    b"    }else el.textContent='—';\n"
+    b"    }else el.textContent='\\u2014';\n"
     b"  }).catch(()=>{});\n"
     b"}\n"
     b"updateSync();setInterval(updateSync,30000);\n"
