@@ -647,7 +647,7 @@ _DASHBOARD_HTML = (
     b"<div class=\"l\">Models</div></div>\n"
     b"  <div class=\"stat\"><div class=\"v\" id=\"sh\">-</div>"
     b"<div class=\"l\">Healthy</div></div>\n"
-    b"  <div class=\"stat\"><div class=\"v\" id=\"sy\">—</div>"
+    b"  <div class=\"stat\"><div class=\"v\" id=\"sy\">&#8212;</div>"
     b"<div class=\"l\">Sync</div></div>\n"
     b"  <div id=\"dot\" title=\"Live stream\"></div>\n"
     b"</div>\n"
