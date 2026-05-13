@@ -145,26 +145,6 @@ else
 fi
 info "GPU_TYPE=${GPU_TYPE} saved to .env"
 
-# ─── Generate Ollama peer SSH key ─────────────────────────────────────────────
-# docker-compose.yml mounts OLLAMA_SSH_KEY_PUB into the container. If the file
-# is absent, Docker auto-creates a directory there and the mount fails at boot.
-OLLAMA_SSH_KEY_PATH="${HOME}/.ssh/id_ed25519_ollama"
-if [[ ! -f "${OLLAMA_SSH_KEY_PATH}" ]]; then
-    mkdir -p "${HOME}/.ssh"
-    ssh-keygen -t ed25519 -f "${OLLAMA_SSH_KEY_PATH}" -N "" -q
-    success "Generated Ollama peer SSH key at ${OLLAMA_SSH_KEY_PATH}"
-else
-    success "Ollama peer SSH key exists at ${OLLAMA_SSH_KEY_PATH}"
-fi
-# Also ensure the public key file exists (not a stale directory from a failed mount)
-if [[ -d "${OLLAMA_SSH_KEY_PATH}.pub" ]]; then
-    rm -rf "${OLLAMA_SSH_KEY_PATH}.pub"
-fi
-if [[ ! -f "${OLLAMA_SSH_KEY_PATH}.pub" ]]; then
-    ssh-keygen -y -f "${OLLAMA_SSH_KEY_PATH}" > "${OLLAMA_SSH_KEY_PATH}.pub"
-    success "Derived public key at ${OLLAMA_SSH_KEY_PATH}.pub"
-fi
-
 # ─── Preflight checks ─────────────────────────────────────────────────────────
 header "Preflight Checks"
 
