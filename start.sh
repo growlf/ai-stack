@@ -90,4 +90,4 @@ esac
 
 # ── 5. Start the stack ────────────────────────────────────────────────
 echo "→ Starting stack..."
-docker compose $COMPOSE_ARGS up "$@"
+docker compose $COMPOSE_ARGS up --remove-orphans "$@"

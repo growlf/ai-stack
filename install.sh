@@ -65,8 +65,7 @@ if grep -v '^[[:space:]]*#' "${SCRIPT_DIR}/.env" 2>/dev/null | grep -q '<vaultwa
             info "snap unavailable — trying npm (user-local install)..."
             _npm_prefix="${HOME}/.npm-global"
             mkdir -p "${_npm_prefix}"
-            npm config set prefix "${_npm_prefix}"
-            if npm install -g @bitwarden/cli 2>/dev/null; then
+            if npm install -g @bitwarden/cli --prefix "${_npm_prefix}" 2>/dev/null; then
                 export PATH="${_npm_prefix}/bin:${PATH}"
                 success "Bitwarden CLI installed via npm to ${_npm_prefix}."
                 _bw_installed=true
