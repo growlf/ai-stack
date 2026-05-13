@@ -24,15 +24,35 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "${SCRIPT_DIR}"
 
-# ── 1. Verify .env exists ─────────────────────────────────────────────
+# ── 1. Ensure .env exists (auto-bootstrap on first run) ───────────────
 if [[ ! -f .env ]]; then
-  echo "✗ .env not found. Copy .env.example and fill in your values:"
-  echo "    cp .env.example .env && nano .env"
-  exit 1
+  if [[ ! -f .env.example ]]; then
+    echo "✗ .env.example not found. Is this a complete ai-stack clone?"
+    exit 1
+  fi
+  echo "→ No .env found — creating from .env.example..."
+  cp .env.example .env
+  sed -i "s|^STACK_USER=.*|STACK_USER=$(whoami)|" .env
+  LITELLM_KEY=$(python3 -c "import secrets; print('sk-local-' + secrets.token_hex(16))" 2>/dev/null \
+      || openssl rand -hex 24 | awk '{print "sk-local-" $0}')
+  sed -i "s|^LITELLM_MASTER_KEY=.*|LITELLM_MASTER_KEY=${LITELLM_KEY}|" .env
+  echo "✓ Created .env — STACK_USER=$(whoami), LITELLM_MASTER_KEY auto-generated."
+  echo "  For cloud models (Claude/Gemini), add API keys to .env first."
+  echo ""
 fi
 
 # ── 2. Resolve VaultWarden placeholders (if any) ──────────────────────
-bash "${SCRIPT_DIR}/scripts/resolve-vaultwarden.sh"
+if grep -v '^[[:space:]]*#' "${SCRIPT_DIR}/.env" 2>/dev/null | grep -q '<vaultwarden:'; then
+  if [[ -n "${BW_SESSION:-}" ]] || [[ -n "${VAULT_MASTER_PASSWORD:-}" ]]; then
+    bash "${SCRIPT_DIR}/scripts/resolve-vaultwarden.sh"
+  else
+    echo "  [WARN] .env has VaultWarden placeholders but vault is locked — starting without resolving."
+    echo "         Secrets sourced from Bitwarden will be empty until resolved. To fix:"
+    echo "           export BW_SESSION=\$(bw unlock --raw)"
+    echo "           bash scripts/resolve-vaultwarden.sh"
+    echo "           sudo systemctl restart ai-stack.service"
+  fi
+fi
 
 # ── 3. Generate olla.yaml from .env ───────────────────────────────────
 bash "${SCRIPT_DIR}/scripts/generate-olla-config.sh"
@@ -70,4 +90,4 @@ esac
 
 # ── 5. Start the stack ────────────────────────────────────────────────
 echo "→ Starting stack..."
-docker compose $COMPOSE_ARGS up "$@"
+docker compose $COMPOSE_ARGS up --remove-orphans "$@"

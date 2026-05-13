@@ -48,8 +48,43 @@ if [[ ! -f "${SCRIPT_DIR}/.env" ]]; then
 fi
 
 # Resolve VaultWarden placeholders before sourcing
-if grep -q '<vaultwarden:' "${SCRIPT_DIR}/.env" 2>/dev/null; then
-    info "Resolving VaultWarden placeholders in .env..."
+if grep -v '^[[:space:]]*#' "${SCRIPT_DIR}/.env" 2>/dev/null | grep -q '<vaultwarden:'; then
+    info "VaultWarden placeholders detected in .env."
+
+    # Auto-install bw CLI if missing
+    if ! command -v bw &>/dev/null; then
+        info "Bitwarden CLI (bw) not found — installing..."
+        _bw_installed=false
+        if command -v snap &>/dev/null; then
+            if sudo snap install bw 2>/dev/null; then
+                success "Bitwarden CLI installed via snap."
+                _bw_installed=true
+            fi
+        fi
+        if [[ "$_bw_installed" == "false" ]] && command -v npm &>/dev/null; then
+            info "snap unavailable — trying npm (user-local install)..."
+            _npm_prefix="${HOME}/.npm-global"
+            mkdir -p "${_npm_prefix}"
+            if npm install -g @bitwarden/cli --prefix "${_npm_prefix}" 2>/dev/null; then
+                export PATH="${_npm_prefix}/bin:${PATH}"
+                success "Bitwarden CLI installed via npm to ${_npm_prefix}."
+                _bw_installed=true
+            fi
+        fi
+        if [[ "$_bw_installed" == "false" ]]; then
+            warn "Could not auto-install Bitwarden CLI."
+            warn "Install manually:  sudo snap install bw"
+            warn "VaultWarden placeholders will remain unresolved."
+        fi
+        unset _bw_installed _npm_prefix
+    fi
+
+    if [[ -z "${BW_SESSION:-}" ]] && [[ -z "${VAULT_MASTER_PASSWORD:-}" ]]; then
+        warn "Your .env has VaultWarden secrets but no active session was found."
+        warn "To unlock your vault before running the installer:"
+        warn "  export BW_SESSION=\$(bw unlock --raw)"
+        warn "  ./install.sh"
+    fi
     if [[ -f "${SCRIPT_DIR}/scripts/resolve-vaultwarden.sh" ]]; then
         bash "${SCRIPT_DIR}/scripts/resolve-vaultwarden.sh"
     else
@@ -61,6 +96,11 @@ fi
 source "${SCRIPT_DIR}/.env"
 
 STACK_USER="${STACK_USER:-$(whoami)}"
+if [[ "$STACK_USER" == "yourusername" ]]; then
+    STACK_USER=$(whoami)
+    sed -i "s|^STACK_USER=.*|STACK_USER=${STACK_USER}|" "${SCRIPT_DIR}/.env"
+    info "Updated STACK_USER to ${STACK_USER} in .env"
+fi
 INSTALL_DIR="${INSTALL_DIR:-${SCRIPT_DIR}}"
 
 # ─── GPU selection ────────────────────────────────────────────────────────────
@@ -170,9 +210,29 @@ check_nvidia_gpu() {
     success "NVIDIA GPU: ${gpu_name:-unknown}"
 
     if ! docker info 2>/dev/null | grep -q "nvidia"; then
-        warn "NVIDIA Container Toolkit may not be installed or configured."
-        warn "Install: https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html"
-        warn "Then: sudo systemctl restart docker"
+        if command -v nvidia-ctk &>/dev/null; then
+            info "NVIDIA Container Toolkit found but not wired into Docker — configuring now..."
+            sudo nvidia-ctk runtime configure --runtime=docker
+            sudo systemctl restart docker
+            if docker info 2>/dev/null | grep -q "nvidia"; then
+                success "NVIDIA Container Toolkit configured and Docker restarted."
+            else
+                warn "NVIDIA Container Toolkit configured but Docker still doesn't show nvidia runtime."
+                warn "Check /etc/docker/daemon.json and re-run: sudo systemctl restart docker"
+            fi
+        else
+            warn "NVIDIA Container Toolkit not installed. Install it:"
+            warn "  curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \\"
+            warn "    | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg"
+            warn "  curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list \\"
+            warn "    | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' \\"
+            warn "    | sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list"
+            warn "  sudo apt-get update && sudo apt-get install -y nvidia-container-toolkit"
+            warn "  sudo nvidia-ctk runtime configure --runtime=docker"
+            warn "  sudo systemctl restart docker"
+            warn "Then re-run this installer."
+            exit 1
+        fi
     else
         success "NVIDIA Container Toolkit detected."
     fi
@@ -445,178 +505,6 @@ else
     info "  cd .obsidian/plugins/obsidian-opencode && bun install && bun run build"
 fi
 
-# ─── Bitwarden / VaultWarden Secret Management (optional) ──────────────────────
-header "Bitwarden / VaultWarden"
-
-info "The stack can resolve <vaultwarden:path> placeholders in .env"
-info "using Bitwarden (or self-hosted VaultWarden) for secret management."
-info "This lets you store API keys in your vault instead of plaintext in .env."
-echo ""
-
-read -rp "Configure Bitwarden secret management? [y/N] " setup_bw
-if [[ "${setup_bw,,}" != "y" ]]; then
-    info "Skipping Bitwarden setup."
-else
-    # ── Check for existing session ─────────────────────────────────────────
-    BW_HAS_SESSION=false
-    if command -v bw &>/dev/null; then
-        bw_status=$(bw status 2>/dev/null || echo '{"status":"unauthenticated"}')
-        if echo "$bw_status" | grep -q '"status":"unlocked"'; then
-            BW_HAS_SESSION=true
-            success "Bitwarden vault already unlocked."
-        fi
-    fi
-
-    # ── Install bw CLI if missing ──────────────────────────────────────────
-    if ! command -v bw &>/dev/null; then
-        info "Installing Bitwarden CLI via npm..."
-        if ! command -v npm &>/dev/null; then
-            info "npm not found — installing Node.js..."
-            if command -v snap &>/dev/null; then
-                sudo snap install node --classic
-            elif command -v apt-get &>/dev/null; then
-                sudo apt-get update -qq && sudo apt-get install -y -qq nodejs npm
-            else
-                warn "Cannot install npm automatically."
-                info "Install Node.js manually, then run: npm install -g @bitwarden/cli"
-            fi
-        fi
-        if command -v npm &>/dev/null; then
-            npm install -g @bitwarden/cli
-            if command -v bw &>/dev/null; then
-                success "Bitwarden CLI installed."
-            else
-                warn "bw CLI install may need a new shell or PATH update."
-            fi
-        fi
-    fi
-
-    if ! command -v bw &>/dev/null; then
-        warn "bw CLI not available — skipping Bitwarden configuration."
-        info "Install manually: npm install -g @bitwarden/cli"
-    elif [[ "$BW_HAS_SESSION" != "true" ]]; then
-        # ── Server URL (self-hosted VaultWarden) ─────────────────────────
-        echo ""
-        info "Are you using Bitwarden cloud (bitwarden.com) or a self-hosted VaultWarden?"
-        read -rp "Self-hosted VaultWarden URL (or leave blank for Bitwarden cloud): " BW_SERVER_URL_VAL
-        if [[ -n "${BW_SERVER_URL_VAL}" ]]; then
-            if [[ "${BW_SERVER_URL_VAL,,}" != https://* ]]; then
-                warn "URL must use HTTPS. Prepending https://"
-                BW_SERVER_URL_VAL="https://${BW_SERVER_URL_VAL}"
-            fi
-            bw config server "$BW_SERVER_URL_VAL" >/dev/null 2>&1
-            success "VaultWarden server configured: ${BW_SERVER_URL_VAL}"
-        fi
-
-        # ── Login ────────────────────────────────────────────────────────
-        echo ""
-        info "Log in to Bitwarden now. Your master password is used only for this"
-        info "one-time login and will NOT be stored anywhere."
-        read -rp "Bitwarden email: " BW_EMAIL
-        read -rsp "Master password (not stored): " BW_MASTER_PW
-        echo ""
-
-        export BW_CLIENT_ID=""
-        export BW_CLIENT_SECRET=""
-        BW_SESSION=$(echo "$BW_MASTER_PW" | bw login "$BW_EMAIL" --raw 2>/dev/null || true)
-        BW_MASTER_PW=""
-        if [[ -z "$BW_SESSION" ]]; then
-            warn "Login failed. You may have 2FA enabled."
-            info "Run 'bw login $BW_EMAIL' manually in another terminal, then re-run install.sh."
-        else
-            success "Logged in as ${BW_EMAIL}."
-            export BW_SESSION
-            bw sync >/dev/null 2>&1
-        fi
-    fi
-
-    if command -v bw &>/dev/null; then
-        # ── Organization ID ──────────────────────────────────────────────
-        echo ""
-        info "You need a Bitwarden organization ID to scope secret lookups."
-        info "Find it by logging into the Bitwarden web vault → Settings → Organizations."
-        echo ""
-        read -rp "Bitwarden Organization ID (leave blank to skip): " BW_ORG_ID
-
-        if [[ -n "${BW_ORG_ID}" ]]; then
-            # ── API key setup ───────────────────────────────────────────
-            echo ""
-            info "Generate a Bitwarden API key for non-interactive secret resolution:"
-            info "  Web vault → Settings → Security → Keys tab → View API Key"
-            info "  (Enter your master password to view, then copy the values.)"
-            echo ""
-            read -rp "BW_CLIENT_ID (e.g. user.xxxxxx): " BW_CLIENT_ID_VAL
-            read -rsp "BW_CLIENT_SECRET: " BW_CLIENT_SECRET_VAL
-            echo ""
-
-            # Remove any existing LITELLM_MASTER_KEY from .env (avoid duplicates)
-            if grep -q '^LITELLM_MASTER_KEY=' "${SCRIPT_DIR}/.env" 2>/dev/null; then
-                sed -i '/^LITELLM_MASTER_KEY=/d' "${SCRIPT_DIR}/.env"
-                info "Removed existing LITELLM_MASTER_KEY from .env (will be replaced)."
-            fi
-
-            # ── Write to .env ───────────────────────────────────────────
-            if [[ -n "${BW_SERVER_URL_VAL:-}" ]]; then
-                echo "BW_SERVER_URL=${BW_SERVER_URL_VAL}" >> .env
-            fi
-            {
-                echo ""
-                echo "# ─── Bitwarden / VaultWarden (added by install.sh) ─────────────────"
-                echo "BW_CLIENT_ID=${BW_CLIENT_ID_VAL}"
-                echo "BW_CLIENT_SECRET=${BW_CLIENT_SECRET_VAL}"
-                echo ""
-                echo "# Secrets stored in Bitwarden — resolved via resolve-vaultwarden.sh"
-                echo "# Format: <vaultwarden:org-id/item-name>"
-                echo "ANTHROPIC_API_KEY=<vaultwarden:${BW_ORG_ID}/anthropic-api-key>"
-                echo "GEMINI_API_KEY=<vaultwarden:${BW_ORG_ID}/gemini-api-key>"
-                echo "LITELLM_MASTER_KEY=<vaultwarden:${BW_ORG_ID}/litellm-master-key>"
-            } >> .env
-
-            # ── Auto-generate LiteLLM key and store in Bitwarden ────────
-            if command -v bw &>/dev/null; then
-                LITELLM_KEY="sk-$(openssl rand -hex 24 2>/dev/null || head -c32 < /dev/urandom | xxd -p -c64)"
-                litellm_item=$(bw list items --search "litellm-master-key" --organizationid "$BW_ORG_ID" --session "$BW_SESSION" 2>/dev/null | python3 -c "
-import sys, json
-data = json.load(sys.stdin)
-for item in (data if isinstance(data, list) else []):
-    if item.get('name') == 'litellm-master-key':
-        print(item['id'])
-" 2>/dev/null || true)
-                if [[ -n "$litellm_item" ]]; then
-                    info "Updating existing litellm-master-key in vault..."
-                    bw get item "$litellm_item" --session "$BW_SESSION" 2>/dev/null | \
-                        python3 -c "
-import sys, json
-item = json.load(sys.stdin)
-item['login']['password'] = '${LITELLM_KEY}'
-print(json.dumps(item))
-" 2>/dev/null | \
-                    bw encode | \
-                    bw edit item "$litellm_item" --session "$BW_SESSION" >/dev/null 2>&1 || true
-                else
-                    info "Creating litellm-master-key in vault..."
-                    item_json=$(printf '{"organizationId":"%s","name":"litellm-master-key","type":1,"login":{"username":"litellm","password":"%s","uris":[]}}' "$BW_ORG_ID" "$LITELLM_KEY")
-                    echo "$item_json" | bw encode | bw create item --session "$BW_SESSION" >/dev/null 2>&1 || true
-                fi
-            fi
-
-            # ── Attempt resolution ──────────────────────────────────────
-            info "Attempting to resolve placeholders now..."
-            if bash "${SCRIPT_DIR}/scripts/resolve-vaultwarden.sh"; then
-                success "Placeholders resolved — secrets pulled from vault."
-            else
-                warn "Resolution incomplete. Create these items in your vault:"
-                echo "  1. ${BW_ORG_ID}/anthropic-api-key  (login item, password = API key)"
-                echo "  2. ${BW_ORG_ID}/gemini-api-key     (login item, password = API key)"
-                echo ""
-                echo "  litellm-master-key was auto-created with a generated key."
-                echo "  Then run: ./scripts/resolve-vaultwarden.sh"
-            fi
-        else
-            warn "No organization ID — skipping Bitwarden setup."
-        fi
-    fi
-fi
 
 # ─── Done ─────────────────────────────────────────────────────────────────────
 header "Installation Complete"
@@ -624,7 +512,21 @@ header "Installation Complete"
 OLLA_PORT="${OLLA_PORT:-40114}"
 RETRIEVER_PORT="${RETRIEVER_PORT:-42000}"
 
-echo -e "${GREEN}${BOLD}Stack is running!${RESET}"
+# Verify the ollama container is actually up before claiming success
+if sudo docker inspect --format='{{.State.Status}}' "${OLLAMA_CONTAINER}" 2>/dev/null | grep -q "running"; then
+    echo -e "${GREEN}${BOLD}Stack is running!${RESET}"
+else
+    echo -e "${YELLOW}${BOLD}Installation complete — but the stack did not start cleanly.${RESET}"
+    echo ""
+    echo -e "  Diagnose with:"
+    echo -e "    ${BOLD}sudo systemctl status ai-stack.service${RESET}"
+    echo -e "    ${BOLD}journalctl -xeu ai-stack.service --no-pager | tail -30${RESET}"
+    echo ""
+    echo -e "  Common causes:"
+    echo -e "    • Another Ollama process holds port 11434 — ${BOLD}sudo systemctl stop ollama && sudo systemctl disable ollama${RESET}"
+    echo -e "    • Docker daemon not running — ${BOLD}sudo systemctl start docker${RESET}"
+    echo ""
+fi
 echo ""
 echo -e "  Olla (router): ${BOLD}http://localhost:${OLLA_PORT}${RESET}"
 echo -e "  Retriever:     ${BOLD}http://localhost:${RETRIEVER_PORT}/health${RESET}"

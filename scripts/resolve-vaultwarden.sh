@@ -44,8 +44,8 @@ if [[ ! -f "$ENV_FILE" ]]; then
     exit 0
 fi
 
-# Check for placeholders
-if ! grep -q '<vaultwarden:' "$ENV_FILE" 2>/dev/null; then
+# Check for placeholders (exclude comment lines)
+if ! grep -v '^[[:space:]]*#' "$ENV_FILE" 2>/dev/null | grep -q '<vaultwarden:'; then
     echo "→ No <vaultwarden:...> placeholders found in .env"
     exit 0
 fi
@@ -54,10 +54,10 @@ echo "→ Resolving <vaultwarden:...> placeholders in .env..."
 
 # ── Check bw CLI ──────────────────────────────────────────────────────────
 if ! command -v bw &>/dev/null; then
-    echo "✗ Bitwarden CLI (bw) not found."
-    echo "  Install: npm install -g @bitwarden/cli"
-    echo "  Or: https://bitwarden.com/help/cli/"
-    exit 1
+    echo "  Bitwarden CLI (bw) not found — skipping VaultWarden resolution."
+    echo "  VaultWarden placeholders in .env will remain unresolved."
+    echo "  To install bw: sudo npm install -g @bitwarden/cli"
+    exit 0
 fi
 
 # ── Configure server URL (self-hosted VaultWarden) ────────────────────────
@@ -90,7 +90,9 @@ bw_login() {
                 return 1
             fi
         else
-            echo "✗ Vault is locked. Set VAULT_MASTER_PASSWORD or run 'bw unlock' manually."
+            echo "✗ Vault is locked. Unlock and export the session token, then retry:"
+            echo "    export BW_SESSION=\$(bw unlock --raw)"
+            echo "    ./install.sh"
             return 1
         fi
     else

@@ -19,7 +19,9 @@
 #   See docs/hardware/ for requirements, tuning, and troubleshooting.
 #
 # Quick start:
-#   1. cp .env.example .env && nano .env
+#   1. ./install.sh                      # auto-detects GPU, creates .env, starts stack
+#   -- or manually:
+#   1. cp .env.example .env              # then edit .env with your settings
 #   2. scripts/generate-olla-config.sh   # generate proxy/olla.yaml
 #   3. docker compose up -d              # add -f overlay for your GPU
 #

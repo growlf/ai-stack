@@ -122,29 +122,18 @@ The router view (`/gestalt/ui`) shows a live feed of every routing decision — 
 ## Quick Start
 
 ```bash
-# 1. Clone and configure
 git clone https://github.com/growlf/ai-stack.git
 cd ai-stack
-cp .env.example .env
-nano .env   # set LITELLM_MASTER_KEY and your cloud API keys
-
-# 2. Generate Olla proxy config
-scripts/generate-olla-config.sh
-
-# 3. Start the stack
-docker compose up -d
-
-# 4. Open the cluster dashboard
-open http://localhost:40116/ui
+./install.sh
 ```
 
-For GPU acceleration:
-```bash
-# Intel Arc iGPU
-docker compose -f docker-compose.yml -f docker-compose.arc.yml up -d
+The installer auto-detects your GPU (NVIDIA, Intel Arc, or CPU-only), creates `.env`, generates your API key, and starts the stack. Open `http://localhost:40116/ui` when it completes.
 
-# NVIDIA GPU
-docker compose -f docker-compose.yml -f docker-compose.nvidia.yml up -d
+To add cloud models (Claude, Gemini) after install:
+```bash
+echo 'ANTHROPIC_API_KEY=sk-ant-...' >> .env
+echo 'GEMINI_API_KEY=AI...' >> .env
+docker compose restart litellm
 ```
 
 **[Full install guide → docs/install.md](docs/install.md)**
