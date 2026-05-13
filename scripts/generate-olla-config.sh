@@ -43,7 +43,9 @@ if [[ -f "$ENV_FILE" ]]; then
     val="${val#\"}"; val="${val%\"}"
     val="${val#\'}"; val="${val%\'}"
     case "$key" in
-      OLLA_*|OLLAMA_REMOTE_*) eval "export $key=\$val" ;;
+      OLLA_*|OLLAMA_REMOTE_*)
+        declare -gx "$key=$val"
+        ;;
     esac
   done < "$ENV_FILE"
 fi
