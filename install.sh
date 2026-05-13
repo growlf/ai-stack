@@ -49,7 +49,37 @@ fi
 
 # Resolve VaultWarden placeholders before sourcing
 if grep -v '^[[:space:]]*#' "${SCRIPT_DIR}/.env" 2>/dev/null | grep -q '<vaultwarden:'; then
-    info "Resolving VaultWarden placeholders in .env..."
+    info "VaultWarden placeholders detected in .env."
+
+    # Auto-install bw CLI if missing
+    if ! command -v bw &>/dev/null; then
+        info "Bitwarden CLI (bw) not found — installing..."
+        _bw_installed=false
+        if command -v snap &>/dev/null; then
+            if sudo snap install bw 2>/dev/null; then
+                success "Bitwarden CLI installed via snap."
+                _bw_installed=true
+            fi
+        fi
+        if [[ "$_bw_installed" == "false" ]] && command -v npm &>/dev/null; then
+            info "snap unavailable — trying npm (user-local install)..."
+            _npm_prefix="${HOME}/.npm-global"
+            mkdir -p "${_npm_prefix}"
+            npm config set prefix "${_npm_prefix}"
+            if npm install -g @bitwarden/cli 2>/dev/null; then
+                export PATH="${_npm_prefix}/bin:${PATH}"
+                success "Bitwarden CLI installed via npm to ${_npm_prefix}."
+                _bw_installed=true
+            fi
+        fi
+        if [[ "$_bw_installed" == "false" ]]; then
+            warn "Could not auto-install Bitwarden CLI."
+            warn "Install manually:  sudo snap install bw"
+            warn "VaultWarden placeholders will remain unresolved."
+        fi
+        unset _bw_installed _npm_prefix
+    fi
+
     if [[ -z "${BW_SESSION:-}" ]] && [[ -z "${VAULT_MASTER_PASSWORD:-}" ]]; then
         warn "Your .env has VaultWarden secrets but no active session was found."
         warn "To unlock your vault before running the installer:"
