@@ -304,6 +304,19 @@ success "Installed and enabled ai-stack.service"
 
 # OpenCode (CLI + Obsidian sidebar plugin) is the primary AI interface.
 
+# ─── Build images ────────────────────────────────────────────────────────────
+header "Building Images"
+_compose_files="-f docker-compose.yml"
+case "${GPU_TYPE}" in
+  arc)    _compose_files+=" -f docker-compose.arc.yml" ;;
+  nvidia) _compose_files+=" -f docker-compose.nvidia.yml" ;;
+esac
+info "Building local service images from current source..."
+# shellcheck disable=SC2086
+docker compose ${_compose_files} build --quiet
+unset _compose_files
+success "Images built."
+
 # ─── Start the full stack ─────────────────────────────────────────────────────
 header "Starting AI Stack"
 
