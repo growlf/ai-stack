@@ -8,6 +8,7 @@ cards show what Olla can see.
 
 import asyncio
 import os
+import socket
 import time
 from pathlib import Path
 
@@ -15,6 +16,22 @@ import httpx
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
+
+
+# Human-friendly name for the host running shepherd-control. Used to substitute
+# "localhost" / "127.0.0.1" in discovered_via attribution so the dashboard says
+# "via cluster-llm" instead of the confusing "via localhost".
+SHEPHERD_CONTROL_NAME = os.environ.get("SHEPHERD_CONTROL_NAME", socket.gethostname())
+
+
+def _normalize_discovery_source(olla_url: str) -> str:
+    """Convert localhost/127.0.0.1 Olla URLs to the control host's display name."""
+    lower = olla_url.lower()
+    if "localhost" in lower or "127.0.0.1" in lower:
+        return SHEPHERD_CONTROL_NAME
+    # External URL — strip scheme + port for display
+    cleaned = olla_url.split("://", 1)[-1]
+    return cleaned.split(":")[0] or olla_url
 
 
 # Peer list: shepherd-node peers (full data)
@@ -181,7 +198,8 @@ async def derive_olla_peers() -> list[dict]:
                     "responding": True,
                     "status_via_local_olla": status,
                     "issues": endpoint.get("issues", ""),
-                    "discovered_via": olla_url,
+                    "discovered_via": _normalize_discovery_source(olla_url),
+                    "discovered_via_raw": olla_url,
                 },
             })
     return lite_peers
