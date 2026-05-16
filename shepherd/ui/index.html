@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Shepherd — ai-stack herd observatory</title>
+  <link rel="stylesheet" href="/ui/shepherd.css">
+</head>
+<body class="kiosk">
+  <header>
+    <div class="brand">
+      <span class="emoji">🐑</span>
+      <span class="name">Shepherd</span>
+      <span class="tagline">tending the ai-stack herd</span>
+    </div>
+    <div class="status" id="overall-status">connecting…</div>
+    <div class="clock" id="clock"></div>
+  </header>
+
+  <main>
+    <section class="nodes" id="nodes">
+      <!-- node cards rendered live -->
+    </section>
+
+    <section class="herd-totals" id="herd-totals">
+      <div class="totals-card">
+        <div class="totals-label">Herd VRAM</div>
+        <div class="totals-value" id="total-vram">—</div>
+      </div>
+      <div class="totals-card">
+        <div class="totals-label">Resident models</div>
+        <div class="totals-value" id="total-models">—</div>
+      </div>
+      <div class="totals-card">
+        <div class="totals-label">Nodes online</div>
+        <div class="totals-value" id="total-nodes">—</div>
+      </div>
+      <div class="totals-card">
+        <div class="totals-label">Mode</div>
+        <div class="totals-value" id="mode-badge">demo</div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <span>Shepherd v0.1 — <span id="footer-source"></span></span>
+    <span class="federation">Federation: <span id="federation-label">cluster-llm + peers</span></span>
+  </footer>
+
+  <script src="/ui/shepherd.js"></script>
+</body>
+</html>
