@@ -202,39 +202,48 @@ The smart router only routes to models that are available on at least one connec
 
 ---
 
-## Self-aware model sync (Apostle)
+## Herd observability with Shepherd
 
-The Apostle (`scripts/apostle.py`) is a hardware-aware peer-to-peer model sync agent. Unlike `sync-models.sh` (which pushes from cluster-llm to spokes via rsync), the Apostle runs on each node and autonomously decides what to sync based on:
+> *Replaces the earlier "Apostle" self-sync agent. Shepherd takes Apostle's observability role; model distribution today uses `ollama pull` per node, with Olla federation making "model available somewhere on the herd" usable transparently.*
 
-- **Hardware fit**: checks RAM/disk capacity and profile (desktop/laptop/ultra-light)
-- **Peer discovery**: reads `OLLAMA_REMOTE_*` from `.env` to find peers
-- **Model catalog**: `scripts/models.yaml` tags each model with RAM requirements, tool support, priority, and role
+[Shepherd](../shepherd/README.md) is the herd's observability layer — a per-node sidecar (`shepherd-node`) plus a central control-plane (`shepherd-control`). After your peers are connected via Olla (above), deploy Shepherd on each so they appear on the dashboard with real CPU/RAM/GPU stats.
 
-### Workflow
+### One-time setup on each peer
 
-```
-apostle status     → show local models + peer models + recommendations
-apostle sync       → reconcile: pull missing models from peers (HTTP blob transfer)
-apostle peers      → list known peers and their model inventory
-apostle catalog    → show which models fit this node's hardware
+```bash
+# On each herd peer (cluster-llm, lab nodes, Phoenix, etc.)
+cd ~/Projects/ai-stack    # or wherever you cloned ai-stack
+scripts/shepherd-auto-deploy.sh node
 ```
 
-### Blob transfer
+cluster-llm (or whichever node is the canonical control host) also runs:
 
-The Apostle avoids SSH for bulk data. It:
+```bash
+scripts/shepherd-auto-deploy.sh both    # node + control-plane dashboard
+```
 
-1. **SSH** into each peer to read the Ollama manifest (~1KB per model)
-2. **HTTP** `GET /api/blobs/<digest>` to download model blobs directly from the peer's Ollama API
-3. Writes the manifest locally — Ollama picks it up on next `list`
+### Auto-update pattern (recommended)
 
-This means model syncing happens at LAN speed between nodes, with no bottleneck through a central relay.
+Set a daily cron on each peer so main-branch updates propagate without per-node operator SSH:
 
-### When to use Apostle vs sync-models.sh
+```bash
+crontab -e
+# Append (4:17am daily, off-peak):
+# 17 4 * * * /home/<user>/ai-stack/scripts/shepherd-auto-deploy.sh node >> /tmp/shepherd-auto-deploy.log 2>&1
+```
 
-| Scenario | Tool |
-|---|---|
-| Initial cluster population from cluster-llm | `sync-models.sh` (rsync, push-based) |
-| Ongoing self-maintenance per node | `apostle sync` (pull-based, autonomous) |
-| One-shot sync of all nodes | `sync-models.sh` |
-| Selective hardware-aware sync | `apostle catalog` + `apostle sync` |
-| Nightly cron-based sync | `pull_ollama_nodes.sh` (Docker-native pull) |
+cluster-llm is the canonical edit/test node — you only push to `main` there. Other peers auto-pull and redeploy.
+
+### Verifying
+
+After deployment, open the control-plane dashboard:
+
+```
+http://<control-host>:40117/
+```
+
+Each healthy peer appears as a card with hardware vendor, accelerator status, resident models, and CPU/RAM gauges. Federation peers (via Olla) also appear, as "lite cards" showing model count without full host metrics — full metrics require `shepherd-node` deployed locally.
+
+### Model sync between nodes
+
+Initial population: use `sync-models.sh` (rsync push from cluster-llm), `pull_ollama_nodes.sh` (Docker-native pull), or just `ollama pull` per node. Olla then handles "model exists somewhere on the herd" routing transparently.

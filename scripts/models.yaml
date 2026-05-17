@@ -1,4 +1,6 @@
-# Model catalog for Apostle — hardware-aware model selection
+# Model catalog — hardware-aware model selection metadata
+# (Originally authored for the Apostle agent; preserved as canonical model metadata
+#  for the future palette-orchestrator and Shepherd's capability surface.)
 # Each model's requirements and role for autonomous node decisions.
 
 models:

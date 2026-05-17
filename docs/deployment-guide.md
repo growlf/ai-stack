@@ -151,18 +151,31 @@ docker exec ollama-arc ollama pull nomic-embed-text:latest
 docker exec ollama-arc ollama pull qwen3.5:27b
 ```
 
-### Self-aware model sync (Apostle)
+### Herd observability with Shepherd
 
-The Apostle (`scripts/apostle.py`) is a hardware-aware peer-to-peer model sync agent. It runs on each node and autonomously decides what to sync based on hardware fit, peer discovery, and the model catalog:
+> *Replaces the earlier Apostle agent — see [shepherd/README.md](../shepherd/README.md) for the service docs.*
+
+After your peers are connected via Olla, deploy Shepherd on each so the herd appears in the dashboard:
 
 ```bash
-./scripts/apostle.py status    # cluster health + model inventory
-./scripts/apostle.py sync      # reconcile missing models from peers
-./scripts/apostle.py peers     # list known peers and their models
-./scripts/apostle.py catalog   # show which models fit this node
+# On each peer (one-time setup)
+scripts/shepherd-auto-deploy.sh node
+
+# On the canonical control-plane host (cluster-llm)
+scripts/shepherd-auto-deploy.sh both
 ```
 
-See [docs/multi-machine.md](multi-machine.md) for the full Apostle workflow.
+A daily cron at `4:17am` on each peer pulls main and auto-redeploys — cluster-llm stays the canonical edit/test node; other peers self-update without per-node SSH.
+
+```bash
+crontab -e
+# Append:
+# 17 4 * * * /home/<user>/ai-stack/scripts/shepherd-auto-deploy.sh node >> /tmp/shepherd-auto-deploy.log 2>&1
+```
+
+Open the dashboard at `http://<control-host>:40117/` to see live herd state.
+
+See [docs/multi-machine.md](multi-machine.md) for the full Shepherd workflow.
 
 ### Add a remote Ollama node
 

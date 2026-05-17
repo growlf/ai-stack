@@ -32,11 +32,14 @@ sudo systemctl start|stop|restart ai-stack.service
 ./scripts/sync-models.sh --dry-run                # preview only
 ./scripts/sync-models.sh --ssh-key ~/.ssh/id_ed25519  # with SSH key
 
-# Self-aware model apostle (hardware-aware peer-to-peer sync)
-./scripts/apostle.py status                       # cluster health + model inventory
-./scripts/apostle.py sync                         # reconcile missing models from peers
-./scripts/apostle.py peers                        # list known peers and their models
-./scripts/apostle.py catalog                      # show which models fit this node
+# Herd observability — Shepherd (per-node sidecar + control-plane dashboard)
+# Shepherd supersedes the earlier Apostle agent — see shepherd/README.md
+scripts/shepherd-auto-deploy.sh node              # deploy shepherd-node on this peer
+scripts/shepherd-auto-deploy.sh control           # deploy shepherd-control (one node only)
+scripts/shepherd-auto-deploy.sh both              # both (cluster-llm pattern)
+# Endpoints once running:
+#   GET http://localhost:40116/herd/metrics        — per-node snapshot
+#   GET http://localhost:40117/                    — central dashboard (D3 + SSE)
 
 # Discover AI services across all networks (LAN + VPN)
 ./scripts/discover-network.sh                         # interactive
@@ -86,9 +89,11 @@ OpenCode (CLI + Obsidian plugin)
 | `scripts/discover-herd.sh` | mDNS + subnet scan for other Ollama nodes on LAN |
 | `scripts/check-arc-gpu.sh` | GPU pre-flight: detects card0/card1 drift, updates `.env`, used as `ExecStartPre` |
 | `scripts/resolve-vaultwarden.sh` | Resolves `<vaultwarden:path>` placeholders in `.env` via `bw` CLI |
-| `scripts/apostle.py` | Self-aware model apostle — hardware-aware peer-to-peer sync (status/sync/peers/catalog) |
+| `scripts/apostle.py` | *(legacy — superseded by Shepherd)* Earlier self-aware model agent; retained for reference until removed |
 | `scripts/models.yaml` | Model catalog with 16 entries, RAM/disk/tools/priority/role metadata |
-| `PLANS.md` | Project Apostle full plan — architecture, phases, design decisions |
+| `shepherd/` | Herd observability service — per-node sidecar + control-plane dashboard. See `shepherd/README.md` |
+| `scripts/shepherd-auto-deploy.sh` | One-shot or cron-driven deploy of shepherd-node / shepherd-control on a peer |
+| `PLANS.md` | Original Project Apostle plan + status block flagging supersession by current architecture (Olla + Router + LiteLLM + Shepherd) |
 | `router/` | Smart Model Router: content-based model selection between OpenCode and Olla |
 | `proxy/litellm_config.yaml` | Static LiteLLM model registry (Claude, Gemini models) |
 
