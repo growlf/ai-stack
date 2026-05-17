@@ -16,10 +16,17 @@ access from shepherd-node, which adds privilege scope. Layer 3.5 work.).
 """
 
 import asyncio
+import os
 import shutil
 from typing import Optional
 
-from . import VerificationProbe, VerificationResult
+from . import VerificationProbe, VerificationResult, RecoveryAttempt
+
+
+# Container name to restart on recovery. Defaults to "ollama" (matches the
+# docker-compose service name on cluster-llm). Override via env if a different
+# container holds the inference runtime.
+OLLAMA_CONTAINER_NAME = os.environ.get("SHEPHERD_OLLAMA_CONTAINER", "ollama")
 
 
 # Tolerance for size_vram vs host-smi mismatch. Ollama rounds + reports
@@ -98,3 +105,55 @@ class NvidiaVerificationProbe(VerificationProbe):
             implementation_status="implemented",
             extra=extra,
         )
+
+    async def recover(self) -> RecoveryAttempt:
+        """Restart the Ollama container to re-establish NVML handle.
+
+        This is the recovery action for the 2026-05-16 cluster-llm regression
+        class — when nvidia-container-runtime loses GPU passthrough after long
+        uptime, a fresh container gets a fresh NVML handle.
+        """
+        action = f"docker restart {OLLAMA_CONTAINER_NAME}"
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "docker", "restart", OLLAMA_CONTAINER_NAME,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30.0)
+            if proc.returncode == 0:
+                return RecoveryAttempt(
+                    attempted=True,
+                    success=True,
+                    action=action,
+                    message=f"Container '{OLLAMA_CONTAINER_NAME}' restarted; "
+                            f"re-verify via /herd/verify after warm-up.",
+                )
+            else:
+                return RecoveryAttempt(
+                    attempted=True,
+                    success=False,
+                    action=action,
+                    message=f"docker exit {proc.returncode}: {stderr.decode().strip()[:300]}",
+                )
+        except asyncio.TimeoutError:
+            return RecoveryAttempt(
+                attempted=True,
+                success=False,
+                action=action,
+                message="docker restart timed out after 30s",
+            )
+        except FileNotFoundError:
+            return RecoveryAttempt(
+                attempted=False,
+                success=None,
+                action=action,
+                message="docker binary not found on host (not container-deployed?)",
+            )
+        except Exception as e:
+            return RecoveryAttempt(
+                attempted=True,
+                success=False,
+                action=action,
+                message=f"unexpected: {type(e).__name__}: {e}",
+            )
