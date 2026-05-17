@@ -146,37 +146,10 @@ services:
     networks:
       - ai-net
 
-  # ─── Apostle — cluster brain + observable dashboard ───────────────────────
-  # Introspects hardware, discovers peers, manages model inventory.
-  # Serves live D3.js cluster dashboard and JSON status API.
-  # Dashboard: http://localhost:40116/ui
-  # Status:    http://localhost:40116/apostle/v1/status
-  # Cluster:   http://localhost:40116/apostle/v1/cluster
-  apostle:
-    build:
-      context: .
-      dockerfile: scripts/Dockerfile.apostle
-    container_name: apostle
-    restart: unless-stopped
-    ports:
-      - "${APOSTLE_PORT:-40116}:40116"
-    volumes:
-      - ./.env:/app/.env:ro
-    environment:
-      - OLLAMA_HOST=ollama
-      - APOSTLE_PORT=40116
-      - APOSTLE_ENV_FILE=/app/.env
-    depends_on:
-      olla:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:40116/health', timeout=5)"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 15s
-    networks:
-      - ai-net
+  # Apostle has been retired — replaced by Shepherd (https://github.com/growlf/ai-stack/tree/main/shepherd).
+  # Shepherd currently runs natively (Python venv via `scripts/shepherd-auto-deploy.sh`) rather than
+  # as a compose service. Containerized shepherd-node with GPU passthrough is a future enhancement.
+  # See shepherd/README.md for the auto-deploy + per-peer cron pattern.
 
   # ── Smart Model Router — content-based model selection ──────────────────
   # Sits between OpenCode and Olla. Classifies queries and auto-selects the

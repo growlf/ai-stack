@@ -21,16 +21,18 @@ The smart router handles this automatically — requests with tool definitions a
 
 If you query Ollama directly (bypassing the router), use only tools-capable models for tool-calling requests.
 
-## Apostle auto-selection
+## Auto-selection (legacy reference)
 
-The Apostle (`scripts/apostle.py catalog`) uses a RAM-budget algorithm to recommend which models fit a node:
+> *The earlier `apostle.py catalog` command provided a RAM-budget recommendation for which models fit a given node. As of 2026-05-16 this functionality is superseded by Shepherd's hardware-probe + future palette-orchestrator design; `scripts/apostle.py` may still exist in the repo as legacy code but is not the current path. The RAM-budget logic below is preserved as design notes for the eventual palette-orchestrator (see [PLANS.md](../PLANS.md) and `~/enclave-core/docs/ai-stack-cross-model-tuning-brainstorm.md`).*
+
+The original budget algorithm:
 
 - **Budget**: 70% of total system RAM by default
 - **Laptop cap**: max 8GB per model when `OLLAMA_PROFILE=laptop`
 - **Ultra-light cap**: max 3GB per model when `OLLAMA_PROFILE=ultra-light`
 - **Priority**: models tagged `priority=high` are recommended first, then sorted by role fit
 
-Run `apostle.py catalog` to see what's recommended for the current node based on its hardware and profile.
+Today: choose models for each node manually based on its hardware, pull them with `ollama pull`, and let Olla federation expose them across the herd. The Shepherd dashboard at `:40117` shows what's resident on each peer.
 
 ## Model selection notes
 
