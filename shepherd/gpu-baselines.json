@@ -1,0 +1,66 @@
+{
+  "version": 1,
+  "description": "Known-good tokens-per-second floor per (accelerator_type x model). Layer 4 of the GPU-integrity plan: shepherd-node periodically runs a small synthetic prompt against a currently-resident model and measures real-world tok/s. If the measured rate falls below the tier floor, that's a latency-regression signal — distinct from Layer 3's cross-source verification (which catches 'GPU passthrough lost'); this catches 'GPU still nominally working but suddenly slow'.",
+  "tiers": {
+    "nvidia": {
+      "_note": "Baselines captured from cluster-llm RTX 3090 Ti on 2026-05-16. Mid-range/low-end NVIDIA GPUs will run below these; tier-by-card-class is a v2 refinement.",
+      "qwen2.5:7b": {
+        "tok_s_floor": 120,
+        "tok_s_typical": 184,
+        "captured": "2026-05-16",
+        "captured_on": "cluster-llm (RTX 3090 Ti)"
+      },
+      "qwen2.5-coder:14b": {
+        "tok_s_floor": 40,
+        "tok_s_typical": 60,
+        "captured": "estimate",
+        "captured_on": "extrapolated; refine when measured"
+      },
+      "deepseek-r1:14b": {
+        "tok_s_floor": 40,
+        "tok_s_typical": 60,
+        "captured": "estimate",
+        "captured_on": "extrapolated; refine when measured"
+      },
+      "llama3.1:8b": {
+        "tok_s_floor": 100,
+        "tok_s_typical": 150,
+        "captured": "estimate",
+        "captured_on": "extrapolated; refine when measured"
+      },
+      "qwen2.5:1.5b": {
+        "tok_s_floor": 200,
+        "tok_s_typical": 300,
+        "captured": "estimate",
+        "captured_on": "extrapolated; refine when measured"
+      }
+    },
+    "intel-arc": {
+      "_note": "Phoenix Arc is currently CPU-falling-back per Phoenix Arc backlog. Baselines pending kernel/ipex-llm regression resolution.",
+      "qwen2.5:7b": {
+        "tok_s_floor": 30,
+        "tok_s_typical": 50,
+        "captured": "pending-validation",
+        "captured_on": "Phoenix when Arc is restored"
+      }
+    },
+    "intel-iris": {
+      "_note": "Lab nodes + nuk1 with integrated Iris graphics. Lower expected throughput than discrete Arc.",
+      "qwen2.5:1.5b": {
+        "tok_s_floor": 10,
+        "tok_s_typical": 20,
+        "captured": "pending-validation",
+        "captured_on": "lab nodes once Iris path is verified"
+      }
+    },
+    "amd": {
+      "_note": "No AMD herd peers yet. Slot in baselines when first AMD node joins."
+    },
+    "apple-silicon": {
+      "_note": "No Apple Silicon herd peers yet."
+    },
+    "cpu": {
+      "_note": "CPU-only inference; no Layer 4 baseline check applies. CPU throughput is highly variable per-host and per-model and isn't a regression signal in itself."
+    }
+  }
+}
