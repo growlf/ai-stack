@@ -52,6 +52,20 @@ class VerificationResult(BaseModel):
     For debugging; consumers should rely on alive + divergence_reasons for decision-making."""
 
 
+class RecoveryAttempt(BaseModel):
+    attempted: bool
+    """True if a recovery action was actually run."""
+
+    success: Optional[bool] = None
+    """True/False if recovery completed and was re-verified. None if we don't know yet."""
+
+    action: str = ""
+    """What was attempted, e.g. 'docker restart ollama'."""
+
+    message: str = ""
+    """Human-readable detail (stdout/stderr summary, or 'not supported on this probe')."""
+
+
 class VerificationProbe(ABC):
     """Vendor-pluggable GPU-state verification. One implementation per accelerator family."""
 
@@ -71,6 +85,20 @@ class VerificationProbe(ABC):
         Probe uses this alongside its vendor-specific signals (host smi tool, container
         exec, etc.) to produce the alive/divergence answer.
         """
+
+    async def recover(self) -> RecoveryAttempt:
+        """Attempt to recover from divergence. Default: no-op (probe doesn't support recovery).
+
+        NVIDIA implementation runs `docker restart ollama` (today's regression class is
+        NVML handle drift inside a container; restart re-establishes the handle).
+        Vendor-specific implementations override; CPU and stubs leave the default no-op.
+        """
+        return RecoveryAttempt(
+            attempted=False,
+            success=None,
+            action="",
+            message=f"Recovery not implemented for probe '{self.name()}'",
+        )
 
 
 def select_verification_probe(metrics_probe_name: str) -> "VerificationProbe":

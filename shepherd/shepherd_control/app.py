@@ -76,6 +76,68 @@ _snapshot: dict = {"nodes": [], "timestamp": None, "source": "starting"}
 _poll_interval_s = int(os.environ.get("SHEPHERD_POLL_INTERVAL", "5"))
 
 
+# Layer 3.5 auto-recovery state: track recovery attempts per peer with circuit breaker.
+# Shape: {peer_name: {"attempts": int, "last_attempt_at": float, "last_action": str}}
+# Reset when verification.alive returns True. Stops trying after MAX_RECOVERY_ATTEMPTS
+# until either alive=True returns OR the circuit is manually reset.
+_recovery_state: dict[str, dict] = {}
+MAX_RECOVERY_ATTEMPTS = 3
+RECOVERY_COOLDOWN_S = 60  # min seconds between attempts; let restart complete + warm up
+RECOVERY_ENABLED = os.environ.get("SHEPHERD_AUTO_RECOVERY", "1") not in ("0", "false", "False")
+
+
+async def maybe_recover_peer(peer: dict):
+    """Layer 3.5: if verification shows divergence and circuit is still closed, POST /herd/recover.
+
+    Idempotent across poll cycles via the _recovery_state dict. On success
+    (verification returns alive=True later), the state resets so future divergences
+    get fresh attempt budgets. After MAX_RECOVERY_ATTEMPTS without success, stops
+    trying — manual operator action needed.
+    """
+    if not RECOVERY_ENABLED:
+        return
+    name = peer.get("name")
+    if not name or not peer.get("reachable"):
+        return
+    verification = peer.get("verification")
+    if not verification:
+        return  # peer doesn't expose verification (older shepherd-node)
+
+    # Recovery succeeded — reset circuit
+    if verification.get("alive") is True:
+        if name in _recovery_state:
+            print(f"[shepherd-control] {name}: verification alive=True, resetting recovery state")
+            del _recovery_state[name]
+        return
+
+    # Divergence detected — check circuit
+    state = _recovery_state.setdefault(name, {"attempts": 0, "last_attempt_at": 0.0, "last_action": ""})
+    now = time.time()
+    if state["attempts"] >= MAX_RECOVERY_ATTEMPTS:
+        return  # circuit open; manual intervention required
+    if now - state["last_attempt_at"] < RECOVERY_COOLDOWN_S:
+        return  # cooldown still active
+
+    url = peer.get("address")
+    if not url:
+        return
+    state["attempts"] += 1
+    state["last_attempt_at"] = now
+    print(f"[shepherd-control] {name}: attempting auto-recovery {state['attempts']}/{MAX_RECOVERY_ATTEMPTS}")
+    try:
+        async with httpx.AsyncClient(timeout=45.0) as client:
+            r = await client.post(f"{url}/herd/recover")
+            r.raise_for_status()
+            result = r.json()
+            attempt = result.get("attempt", {})
+            state["last_action"] = attempt.get("action", "")
+            success = attempt.get("success")
+            msg = attempt.get("message", "")[:200]
+            print(f"[shepherd-control] {name}: recovery attempt → success={success} action={state['last_action']} msg={msg}")
+    except Exception as e:
+        print(f"[shepherd-control] {name}: recovery POST failed: {type(e).__name__}: {e}")
+
+
 async def poll_one_peer(name: str, url: str) -> dict:
     """Pull /herd/metrics + /herd/verify from one real shepherd-node peer.
 
@@ -228,7 +290,11 @@ async def derive_olla_peers() -> list[dict]:
 
 
 async def poll_all_peers():
-    """Single sweep over real peers + Olla-derived lite peers; updates _snapshot."""
+    """Single sweep over real peers + Olla-derived lite peers; updates _snapshot.
+
+    After each sweep, Layer 3.5 auto-recovery checks each real peer's verification
+    state and POSTs /herd/recover when divergence is detected (with circuit breaker).
+    """
     global _snapshot
     real = await asyncio.gather(*[poll_one_peer(n, u) for n, u in PEERS])
     lite = await derive_olla_peers()
@@ -238,7 +304,11 @@ async def poll_all_peers():
         "timestamp": time.time(),
         "source": "shepherd-control",
         "peer_counts": {"full": len(real), "lite": len(lite)},
+        "recovery_state": dict(_recovery_state),  # snapshot for dashboard transparency
     }
+
+    # Layer 3.5: auto-recovery sweep
+    await asyncio.gather(*[maybe_recover_peer(p) for p in real])
 
 
 async def poll_loop():

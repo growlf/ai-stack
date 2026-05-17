@@ -156,6 +156,27 @@ async def post_route_event(event: RouteEvent):
     return {"received": True, "request_id": event.request_id}
 
 
+@app.post("/herd/recover")
+async def recover():
+    """Trigger probe-specific recovery action.
+
+    Layer 3.5: when shepherd-control's continuous verification detects divergence
+    (e.g. NVIDIA's Ollama-vs-host-smi cross-check fires), it POSTs here to attempt
+    auto-recovery without operator intervention. The probe owns the action shape
+    (NVIDIA → `docker restart ollama`, others → stub no-op for now).
+
+    Authentication is not currently enforced — endpoint is reachable only over
+    the BMS LAN + NetBird mesh. Adding auth is a substrate-side ask if this
+    becomes a public surface.
+    """
+    attempt = await _VERIFICATION_PROBE.recover()
+    return {
+        "node": NODE_NAME,
+        "probe": _VERIFICATION_PROBE.name(),
+        "attempt": attempt.model_dump(),
+    }
+
+
 @app.get("/herd/healthz")
 async def healthz():
     return {"status": "ok", "probe": _PROBE.name(), "uptime_seconds": int(time.time() - _START_TIME)}
