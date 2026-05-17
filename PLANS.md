@@ -1,6 +1,20 @@
 # PLANS — ai-stack simplification and retriever service
 
-## Status: Approved for implementation
+> **STATUS UPDATE 2026-05-16:** The "Project Apostle" sections below (starting around line 211) describe an earlier vision for a monolithic per-node agent that introspected hardware, discovered peers, synced models P2P, and observed the herd. That vision has been **superseded by a team-of-services architecture**:
+>
+> - **Olla** (`:40114`) handles federation + peer discovery via `OLLAMA_REMOTE_*` env vars and (in future) mDNS
+> - **Router** (`:40115`) handles smart-routing + LLM-based classification
+> - **LiteLLM** (`:4000`) handles cloud gateway (Claude, Gemini, OpenCode Zen)
+> - **Shepherd** (`shepherd-node` :40116 + `shepherd-control` :40117) handles observability with vendor-pluggable hardware probes
+>
+> The "Apostle API" + "apostle.py CLI" + "Project Apostle phases" described below should be read as **historical record of the original design intent**, not the current implementation. The current implementation lives in:
+> - [`shepherd/README.md`](shepherd/README.md) — observability layer
+> - [`README.md`](README.md) — updated architecture overview
+> - GitHub issues / future PRs — the in-progress Plan v3 (canary, auto-recover, snapshot) for GPU-state integrity
+>
+> The earlier "P2P model sync" idea (apostle.py downloading blobs from peers) is not part of current ai-stack; model distribution today is `ollama pull` per node, with Olla federation making "model available somewhere on the herd" usable transparently to clients.
+
+## Status: Approved for implementation (original 2025 capture — see Status Update above for current state)
 
 ---
 
