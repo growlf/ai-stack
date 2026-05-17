@@ -56,8 +56,10 @@ function renderFullCard(node) {
   const models = ollama.resident_models || [];
 
   const hwClass = classifyHardware(hw);
+  const gpuWarnings = ollama.gpu_warnings || [];
   let healthClass = "healthy";
   if (!node.reachable) healthClass = "offline";
+  else if (gpuWarnings.length > 0) healthClass = "degraded";
   else if (node.olla && node.olla.responding === false) healthClass = "degraded";
 
   const card = document.createElement("div");
@@ -70,6 +72,12 @@ function renderFullCard(node) {
       </div>
       <div class="node-hardware ${hwClass}">${hw.accelerator_name || "—"}</div>
     </div>
+    ${gpuWarnings.length > 0 ? `
+    <div class="gpu-warning-banner">
+      ⚠ GPU divergence detected on ${gpuWarnings.length} model${gpuWarnings.length === 1 ? "" : "s"}:
+      ${gpuWarnings.map(w => `<div class="gpu-warning-detail">${w.model}: ${w.previous_vram_mb} MB → 0 MB (silent CPU fallback suspected)</div>`).join("")}
+    </div>
+    ` : ""}
     <div class="gauges">
       <div class="gauge">
         <div class="gauge-label">VRAM</div>
