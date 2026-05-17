@@ -22,17 +22,19 @@ from pydantic import BaseModel
 from typing import Optional
 
 from .probes import select_probe, HardwareMetrics
+from .verification import select_verification_probe
 from .collectors.system import collect_system
 from .collectors.ollama import collect_ollama
 from .collectors.olla import collect_olla
 
 
-SHEPHERD_VERSION = "0.1.0"
+SHEPHERD_VERSION = "0.2.0"
 NODE_NAME = os.environ.get("SHEPHERD_NODE_NAME", socket.gethostname())
 NODE_ADDRESS = os.environ.get("SHEPHERD_NODE_ADDRESS", "")
 
 # Single probe selected at startup; refresh on signal if hardware changes (rare).
 _PROBE = select_probe()
+_VERIFICATION_PROBE = select_verification_probe(_PROBE.name())
 _START_TIME = time.time()
 
 
@@ -81,18 +83,29 @@ async def schema(v: int = 1):
 
 @app.get("/herd/verify")
 async def verify():
-    """Raw secondary-source data for cross-source divergence detection.
+    """Cross-source GPU-state verification + raw secondary-source data.
 
-    Returns Olla's /internal/status AND Ollama's /api/ps unmodified, so the control-plane
-    can compare them and surface divergences (the Apostle failure class — "Olla says
-    healthy but Ollama says size_vram=0" gets caught here).
+    Returns:
+      - verification: VerificationProbe result for the active accelerator
+        (NVIDIA implemented; Intel Arc/Iris/AMD/Apple Silicon stubbed). Includes
+        alive/divergence_reasons/sources_checked. Layer 3 of the GPU-integrity plan.
+      - olla_status_raw: Olla's /internal/status unmodified
+      - ollama_ps_raw: Ollama's /api/ps unmodified
+
+    The control-plane polls this endpoint, uses `verification.alive` as the
+    headline gate, and surfaces `divergence_reasons` as alerts on the dashboard.
     """
     from .collectors.olla import collect_olla_raw
     from .collectors.ollama import collect_ollama_raw
+
+    ollama_raw = await collect_ollama_raw()
+    verification = await _VERIFICATION_PROBE.verify(ollama_ps_state=ollama_raw)
+
     return {
         "node": NODE_NAME,
+        "verification": verification.model_dump(),
         "olla_status_raw": await collect_olla_raw(),
-        "ollama_ps_raw": await collect_ollama_raw(),
+        "ollama_ps_raw": ollama_raw,
     }
 
 
