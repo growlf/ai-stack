@@ -302,6 +302,27 @@ footer .federation {
   animation: pulse 2s ease-in-out infinite;
 }
 
+/* GPU divergence warning banner — fires when shepherd-node detects size_vram
+   dropping to 0 on a model still resident in /api/ps. Layer 2 of the GPU plan. */
+.gpu-warning-banner {
+  background: rgba(248, 113, 113, 0.15);
+  border: 1px solid rgba(248, 113, 113, 0.45);
+  border-left: 4px solid var(--red);
+  border-radius: 6px;
+  padding: 0.75rem 1rem;
+  font-size: 0.9rem;
+  color: var(--red);
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.gpu-warning-detail {
+  font-family: "SF Mono", "Menlo", monospace;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+
 /* Lite-card stats — peers visible only via Olla federation (no shepherd-node yet).
    Layout dropped-back from the full gauge grid: three readable stat tiles instead of
    four empty bars. Conveys "we see this peer, here's what we know" without faking data. */
