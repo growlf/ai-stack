@@ -57,9 +57,13 @@ function renderFullCard(node) {
 
   const hwClass = classifyHardware(hw);
   const gpuWarnings = ollama.gpu_warnings || [];
+  const verification = node.verification;
+  const verificationDivergent = verification && verification.alive === false;
+  const verificationReasons = (verification && verification.divergence_reasons) || [];
+
   let healthClass = "healthy";
   if (!node.reachable) healthClass = "offline";
-  else if (gpuWarnings.length > 0) healthClass = "degraded";
+  else if (gpuWarnings.length > 0 || verificationDivergent) healthClass = "degraded";
   else if (node.olla && node.olla.responding === false) healthClass = "degraded";
 
   const card = document.createElement("div");
@@ -74,8 +78,14 @@ function renderFullCard(node) {
     </div>
     ${gpuWarnings.length > 0 ? `
     <div class="gpu-warning-banner">
-      ⚠ GPU divergence detected on ${gpuWarnings.length} model${gpuWarnings.length === 1 ? "" : "s"}:
+      ⚠ GPU drop-to-zero detected (${gpuWarnings.length} model${gpuWarnings.length === 1 ? "" : "s"}):
       ${gpuWarnings.map(w => `<div class="gpu-warning-detail">${w.model}: ${w.previous_vram_mb} MB → 0 MB (silent CPU fallback suspected)</div>`).join("")}
+    </div>
+    ` : ""}
+    ${verificationDivergent ? `
+    <div class="gpu-warning-banner">
+      ⚠ Cross-source verification divergence (${verification.accelerator_type}):
+      ${verificationReasons.map(r => `<div class="gpu-warning-detail">${r}</div>`).join("")}
     </div>
     ` : ""}
     <div class="gauges">

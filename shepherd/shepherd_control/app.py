@@ -77,12 +77,32 @@ _poll_interval_s = int(os.environ.get("SHEPHERD_POLL_INTERVAL", "5"))
 
 
 async def poll_one_peer(name: str, url: str) -> dict:
-    """Pull /herd/metrics from one real shepherd-node peer."""
+    """Pull /herd/metrics + /herd/verify from one real shepherd-node peer.
+
+    /herd/metrics gives the standard current-state snapshot.
+    /herd/verify gives the cross-source verification result (Layer 3) — alive/divergence
+    signal. Surfaced as a top-level `verification` field on the peer dict so the
+    dashboard can render divergence alerts independently of the metrics card.
+    Verify is best-effort: if it fails (older shepherd-node not yet upgraded), peer
+    stays reachable with verification=None.
+    """
     try:
         async with httpx.AsyncClient(timeout=4.0) as client:
             r = await client.get(f"{url}/herd/metrics")
             r.raise_for_status()
             metrics = r.json()
+
+            # Best-effort verify poll — older shepherd-node versions may not have the
+            # updated /herd/verify shape with `verification` field. Fall back gracefully.
+            verification = None
+            try:
+                vr = await client.get(f"{url}/herd/verify")
+                if vr.status_code == 200:
+                    verify_data = vr.json()
+                    verification = verify_data.get("verification")
+            except Exception:
+                pass
+
             return {
                 "name": metrics.get("node", {}).get("name") or name,
                 "address": url,
@@ -93,6 +113,7 @@ async def poll_one_peer(name: str, url: str) -> dict:
                 "system": metrics.get("system"),
                 "ollama": metrics.get("ollama"),
                 "olla": metrics.get("olla"),
+                "verification": verification,
                 "shepherd_version": metrics.get("node", {}).get("shepherd_version"),
             }
     except Exception as e:
@@ -107,6 +128,7 @@ async def poll_one_peer(name: str, url: str) -> dict:
             "system": None,
             "ollama": None,
             "olla": None,
+            "verification": None,
         }
 
 
