@@ -177,6 +177,7 @@ async def poll_one_peer(name: str, url: str) -> dict:
                 "ollama": metrics.get("ollama"),
                 "olla": metrics.get("olla"),
                 "verification": verification,
+                "baseline": metrics.get("baseline"),
                 "shepherd_version": metrics.get("node", {}).get("shepherd_version"),
             }
     except Exception as e:
@@ -192,6 +193,7 @@ async def poll_one_peer(name: str, url: str) -> dict:
             "ollama": None,
             "olla": None,
             "verification": None,
+            "baseline": None,
         }
 
 

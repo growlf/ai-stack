@@ -12,6 +12,7 @@ This scaffolding implements /metrics and /schema; others return stubs to be fill
 as v1 progresses. The shape is committed; the bodies grow.
 """
 
+import asyncio
 import os
 import socket
 import time
@@ -19,6 +20,7 @@ import time
 from fastapi import FastAPI
 from pydantic import BaseModel
 
+from .baseline_check import BASELINE_CHECK_INTERVAL_S, run_baseline_check
 from .collectors.olla import collect_olla
 from .collectors.ollama import collect_ollama
 from .collectors.system import collect_system
@@ -34,6 +36,14 @@ _PROBE = select_probe()
 _VERIFICATION_PROBE = select_verification_probe(_PROBE.name())
 _START_TIME = time.time()
 
+# Layer 4 baseline-check state — most recent result, refreshed every ~5min by
+# the background task. Surfaced via /herd/metrics so shepherd-control sees it
+# without each /metrics poll triggering a fresh inference.
+_latest_baseline: dict = {
+    "status": "not_yet_run",
+    "message": "Baseline check has not run yet on this shepherd-node",
+}
+
 
 class NodeIdentity(BaseModel):
     name: str
@@ -48,9 +58,35 @@ class MetricsResponse(BaseModel):
     hardware: HardwareMetrics
     ollama: dict
     olla: dict
+    baseline: dict
 
 
 app = FastAPI(title="Shepherd Node", version=SHEPHERD_VERSION)
+
+
+async def _baseline_check_loop():
+    """Periodically run the Layer 4 baseline check + cache the result."""
+    global _latest_baseline
+    # Small initial delay so /api/ps has a chance to be populated post-start
+    await asyncio.sleep(30)
+    while True:
+        try:
+            _latest_baseline = await run_baseline_check(_PROBE.name())
+            print(
+                f"[shepherd-node] baseline check → {_latest_baseline.get('status')}: {_latest_baseline.get('message', '')[:200]}"
+            )
+        except Exception as e:
+            print(f"[shepherd-node] baseline check error: {type(e).__name__}: {e}")
+            _latest_baseline = {
+                "status": "error",
+                "message": f"baseline check raised: {type(e).__name__}: {e}",
+            }
+        await asyncio.sleep(BASELINE_CHECK_INTERVAL_S)
+
+
+@app.on_event("startup")
+async def _start_baseline_loop():
+    asyncio.create_task(_baseline_check_loop())
 
 
 @app.get("/herd/metrics", response_model=MetricsResponse)
@@ -67,6 +103,7 @@ async def metrics():
         hardware=_PROBE.read_metrics(),
         ollama=await collect_ollama(),
         olla=await collect_olla(),
+        baseline=_latest_baseline,
     )
 
 
