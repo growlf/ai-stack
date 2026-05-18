@@ -25,6 +25,7 @@ from .collectors.olla import collect_olla
 from .collectors.ollama import collect_ollama
 from .collectors.system import collect_system
 from .probes import HardwareMetrics, select_probe
+from .snapshot import maybe_write_snapshot, read_latest_snapshot
 from .verification import select_verification_probe
 
 SHEPHERD_VERSION = "0.2.0"
@@ -65,7 +66,12 @@ app = FastAPI(title="Shepherd Node", version=SHEPHERD_VERSION)
 
 
 async def _baseline_check_loop():
-    """Periodically run the Layer 4 baseline check + cache the result."""
+    """Periodically run the Layer 4 baseline check + cache the result.
+
+    After each successful check, evaluates Layer 5 snapshot eligibility: when
+    Layers 2 + 3 + 4 stay green for KNOWN_GOOD_THRESHOLD_S, snapshot the host's
+    known-good state to disk.
+    """
     global _latest_baseline
     # Small initial delay so /api/ps has a chance to be populated post-start
     await asyncio.sleep(30)
@@ -74,6 +80,25 @@ async def _baseline_check_loop():
             _latest_baseline = await run_baseline_check(_PROBE.name())
             print(
                 f"[shepherd-node] baseline check → {_latest_baseline.get('status')}: {_latest_baseline.get('message', '')[:200]}"
+            )
+
+            # Layer 5: snapshot known-good if all integrity signals are green.
+            # Verification probe runs inline here since it's cheap (~tens of ms).
+            from .collectors.ollama import collect_ollama_raw
+
+            ollama_raw = await collect_ollama_raw()
+            verification_result = await _VERIFICATION_PROBE.verify(ollama_ps_state=ollama_raw)
+            ollama_summary = await collect_ollama()
+            gpu_warnings = ollama_summary.get("gpu_warnings", []) if isinstance(ollama_summary, dict) else []
+            hw = _PROBE.read_metrics()
+            await maybe_write_snapshot(
+                verification_alive=verification_result.alive,
+                baseline_ok=(_latest_baseline.get("status") == "ok"),
+                gpu_warnings_count=len(gpu_warnings),
+                accelerator_type=_PROBE.name(),
+                accelerator_name=hw.accelerator_name,
+                baseline_result=_latest_baseline,
+                shepherd_version=SHEPHERD_VERSION,
             )
         except Exception as e:
             print(f"[shepherd-node] baseline check error: {type(e).__name__}: {e}")
@@ -188,6 +213,21 @@ async def post_route_event(event: RouteEvent):
     """Per-prompt routing event from the Router. STUB in v0.1.0 — captures to storage in v0.2."""
     # TODO: persist via storage.sqlite; for now just acknowledge
     return {"received": True, "request_id": event.request_id}
+
+
+@app.get("/herd/snapshot")
+async def snapshot():
+    """Latest known-good snapshot for this host (Layer 5).
+
+    Returns the most-recently-written `known-good-<hostname>.json` from
+    SHEPHERD_SNAPSHOT_PATH. Snapshots are auto-written when Layers 2 + 3 + 4
+    stay green for SHEPHERD_KNOWN_GOOD_THRESHOLD seconds (default 30 min).
+
+    If no snapshot has been written yet, returns 200 with {"snapshot": null}
+    rather than 404 — distinguishes "host hasn't reached sustained-green yet"
+    from "endpoint doesn't exist."
+    """
+    return {"snapshot": read_latest_snapshot()}
 
 
 @app.post("/herd/recover")
