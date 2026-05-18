@@ -1,11 +1,11 @@
 import os
 import threading
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
-from pydantic import BaseModel
 
-from search import setup_db, hybrid_search, indexed_file_count, total_chunk_count, rebuild_fts
-from indexer import scan_vault, start_watcher, stop_watcher, embed_text, is_indexing, VAULT_PATH
+from fastapi import FastAPI
+from indexer import VAULT_PATH, embed_text, is_indexing, scan_vault, start_watcher, stop_watcher
+from pydantic import BaseModel
+from search import hybrid_search, indexed_file_count, rebuild_fts, setup_db, total_chunk_count
 
 
 class SearchRequest(BaseModel):
@@ -77,6 +77,7 @@ async def search(req: SearchRequest):
 @app.post("/reindex")
 async def reindex():
     from search import get_db
+
     db = get_db()
     db.execute("DELETE FROM documents")
     db.commit()

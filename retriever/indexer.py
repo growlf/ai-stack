@@ -1,12 +1,11 @@
 import os
-import time
 import re
-import threading
+
 import httpx
 import numpy as np
-from watchdog.observers import Observer
+from search import delete_file_chunks, rebuild_fts, store_chunks
 from watchdog.events import FileSystemEventHandler
-from search import store_chunks, delete_file_chunks, rebuild_fts, indexed_file_count
+from watchdog.observers import Observer
 
 VAULT_PATH = os.environ.get("VAULT_PATH", "/vault")
 OLLA_URL = os.environ.get("OLLA_URL", "http://olla:40114")
@@ -33,12 +32,14 @@ def chunk_markdown(text: str, filepath: str) -> list[dict]:
                 if content:
                     ctx = " > ".join(parent_headings) if parent_headings else ""
                     prefix = f"# {ctx}\n\n" if ctx else ""
-                    chunks.append({
-                        "filepath": filepath,
-                        "chunk_index": chunk_index,
-                        "content": prefix + content,
-                        "parent_heading": parent_headings[-1] if parent_headings else "",
-                    })
+                    chunks.append(
+                        {
+                            "filepath": filepath,
+                            "chunk_index": chunk_index,
+                            "content": prefix + content,
+                            "parent_heading": parent_headings[-1] if parent_headings else "",
+                        }
+                    )
                     chunk_index += 1
                 current_section = []
             level = len(heading_match.group(1))
@@ -53,12 +54,14 @@ def chunk_markdown(text: str, filepath: str) -> list[dict]:
         if content:
             ctx = " > ".join(parent_headings) if parent_headings else ""
             prefix = f"# {ctx}\n\n" if ctx else ""
-            chunks.append({
-                "filepath": filepath,
-                "chunk_index": chunk_index,
-                "content": prefix + content,
-                "parent_heading": parent_headings[-1] if parent_headings else "",
-            })
+            chunks.append(
+                {
+                    "filepath": filepath,
+                    "chunk_index": chunk_index,
+                    "content": prefix + content,
+                    "parent_heading": parent_headings[-1] if parent_headings else "",
+                }
+            )
 
     # Sub-chunk long sections
     final_chunks = []
@@ -138,7 +141,7 @@ def index_file(filepath: str) -> int:
     if not os.path.isfile(abs_path):
         return 0
     try:
-        with open(abs_path, "r", encoding="utf-8", errors="replace") as f:
+        with open(abs_path, encoding="utf-8", errors="replace") as f:
             text = f.read()
     except Exception:
         return 0

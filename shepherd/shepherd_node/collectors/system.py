@@ -1,7 +1,8 @@
 """System-level metrics: CPU%, RAM, network throughput. From psutil + /proc."""
 
-import psutil
 import time
+
+import psutil
 
 # Cache last network counter for delta computation
 _last_net = {"ts": 0.0, "rx": 0, "tx": 0}

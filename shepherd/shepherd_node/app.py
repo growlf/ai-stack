@@ -16,17 +16,14 @@ import os
 import socket
 import time
 
-import psutil
 from fastapi import FastAPI
 from pydantic import BaseModel
-from typing import Optional
 
-from .probes import select_probe, HardwareMetrics
-from .verification import select_verification_probe
-from .collectors.system import collect_system
-from .collectors.ollama import collect_ollama
 from .collectors.olla import collect_olla
-
+from .collectors.ollama import collect_ollama
+from .collectors.system import collect_system
+from .probes import HardwareMetrics, select_probe
+from .verification import select_verification_probe
 
 SHEPHERD_VERSION = "0.2.0"
 NODE_NAME = os.environ.get("SHEPHERD_NODE_NAME", socket.gethostname())
@@ -129,7 +126,7 @@ async def capabilities():
 
 
 @app.get("/herd/history")
-async def history(since: Optional[str] = None, until: Optional[str] = None, limit: int = 100):
+async def history(since: str | None = None, until: str | None = None, limit: int = 100):
     """Time-series query against the local SQLite ring buffer. STUB in v0.1.0 — schema lives in storage/sqlite.py."""
     return {"events": [], "note": "history persistence pending v0.2"}
 
@@ -142,11 +139,11 @@ class RouteEvent(BaseModel):
     selected_model: str
     selected_node: str
     cold_load: bool
-    latency_first_token_ms: Optional[int] = None
+    latency_first_token_ms: int | None = None
     tokens_in: int = 0
     tokens_out: int = 0
     total_duration_ms: int
-    fallback_reason: Optional[str] = None
+    fallback_reason: str | None = None
 
 
 @app.post("/herd/events/route")

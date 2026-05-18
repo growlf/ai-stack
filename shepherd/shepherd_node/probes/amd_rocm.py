@@ -6,7 +6,7 @@ Awaits first community contributor with an AMD GPU. Real implementation will use
 
 import shutil
 
-from . import Probe, HardwareMetrics
+from . import HardwareMetrics, Probe
 
 
 class AmdRocmProbe(Probe):

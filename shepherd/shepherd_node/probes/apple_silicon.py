@@ -7,7 +7,7 @@ once we have a Mac to test against.
 
 import platform
 
-from . import Probe, HardwareMetrics
+from . import HardwareMetrics, Probe
 
 
 class AppleSiliconProbe(Probe):

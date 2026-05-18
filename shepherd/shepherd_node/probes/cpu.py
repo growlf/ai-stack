@@ -2,7 +2,7 @@
 
 import platform
 
-from . import Probe, HardwareMetrics
+from . import HardwareMetrics, Probe
 
 
 class CpuProbe(Probe):

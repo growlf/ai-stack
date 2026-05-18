@@ -1,6 +1,7 @@
-import sqlite3
-import numpy as np
 import os
+import sqlite3
+
+import numpy as np
 
 DB_PATH = os.environ.get("DB_PATH", "/data/retriever.db")
 
@@ -73,14 +74,16 @@ def get_all_embeddings():
     result = []
     for r in rows:
         emb = np.frombuffer(r["embedding"], dtype=np.float32) if r["embedding"] else None
-        result.append({
-            "id": r["id"],
-            "filepath": r["filepath"],
-            "chunk_index": r["chunk_index"],
-            "content": r["content"],
-            "parent_heading": r["parent_heading"],
-            "embedding": emb,
-        })
+        result.append(
+            {
+                "id": r["id"],
+                "filepath": r["filepath"],
+                "chunk_index": r["chunk_index"],
+                "content": r["content"],
+                "parent_heading": r["parent_heading"],
+                "embedding": emb,
+            }
+        )
     return result
 
 
@@ -155,10 +158,7 @@ def hybrid_search(query: str, query_embedding: np.ndarray, top_k: int = 10) -> l
         scores[doc_id] = scores.get(doc_id, 0.0) + 1.0 / (rrf_k + rank)
         seen[doc_id] = r
     ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
-    return [
-        {**seen[doc_id], "score": round(rrf_score, 4)}
-        for doc_id, rrf_score in ranked[:top_k]
-    ]
+    return [{**seen[doc_id], "score": round(rrf_score, 4)} for doc_id, rrf_score in ranked[:top_k]]
 
 
 def indexed_file_count() -> int:

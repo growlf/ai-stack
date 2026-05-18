@@ -6,21 +6,25 @@ and registry fallback behaviour. No external services needed.
 """
 
 import json
-import pytest
-import sys
 import os
+import sys
+
+import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "router"))
 from smart_model_router import (
-    classify, should_route, handle_request, _parse_body,
-    MODELS, CapabilityRegistry,
-    _TOOL_CAPABLE_FAMILIES, _TOOL_INCAPABLE_FAMILIES,
+    MODELS,
+    CapabilityRegistry,
+    _parse_body,
+    classify,
+    handle_request,
+    should_route,
 )
-
 
 # ---------------------------------------------------------------------------
 # classify() — keyword-based model selection
 # ---------------------------------------------------------------------------
+
 
 class TestClassify:
     def test_diagnostic_keywords_route_to_diagnostics_model(self):
@@ -82,6 +86,7 @@ class TestClassify:
 # _parse_body() — JSON parsing helper
 # ---------------------------------------------------------------------------
 
+
 class TestParseBody:
     def test_parses_valid_json(self):
         body = json.dumps({"model": "test"}).encode()
@@ -98,6 +103,7 @@ class TestParseBody:
 # ---------------------------------------------------------------------------
 # should_route() — now takes a parsed dict
 # ---------------------------------------------------------------------------
+
 
 class TestShouldRoute:
     def _data(self, model: str) -> dict:
@@ -125,6 +131,7 @@ class TestShouldRoute:
 # ---------------------------------------------------------------------------
 # handle_request() — tool-detection and routing (takes + returns dict)
 # ---------------------------------------------------------------------------
+
 
 class TestHandleRequest:
     def _data(self, content: str, tools=None, functions=None) -> dict:
@@ -185,10 +192,7 @@ class TestHandleRequest:
         """Content as a list of typed parts should still classify correctly."""
         data = {
             "model": "qwen3.5:14b",
-            "messages": [{
-                "role": "user",
-                "content": [{"type": "text", "text": "diagnose the gpu health"}]
-            }]
+            "messages": [{"role": "user", "content": [{"type": "text", "text": "diagnose the gpu health"}]}],
         }
         result = await handle_request(data)
         assert result["model"] == MODELS["diagnostics"]
@@ -203,6 +207,7 @@ class TestHandleRequest:
 # ---------------------------------------------------------------------------
 # CapabilityRegistry._infer_tools() — static method, no I/O
 # ---------------------------------------------------------------------------
+
 
 class TestInferTools:
     """
@@ -254,14 +259,15 @@ class TestInferTools:
 # CapabilityRegistry — in-memory state (no Olla calls)
 # ---------------------------------------------------------------------------
 
+
 class TestCapabilityRegistryState:
     def _make_registry_with(self, models: dict[str, bool]) -> CapabilityRegistry:
         """Build a registry with pre-populated state."""
         from smart_model_router import ModelCapabilities
+
         reg = CapabilityRegistry()
         reg._registry = {
-            name: ModelCapabilities(name=name, tools=capable)
-            for name, capable in models.items()
+            name: ModelCapabilities(name=name, tools=capable) for name, capable in models.items()
         }
         return reg
 
@@ -293,18 +299,22 @@ class TestCapabilityRegistryState:
         assert reg.is_available("any-model:7b") is True
 
     def test_best_tools_model_returns_first_capable(self):
-        reg = self._make_registry_with({
-            "deepseek-r1:14b": False,
-            "mistral-small3.2:24b": True,
-        })
+        reg = self._make_registry_with(
+            {
+                "deepseek-r1:14b": False,
+                "mistral-small3.2:24b": True,
+            }
+        )
         result = reg.best_tools_model()
         assert result == "mistral-small3.2:24b"
 
     def test_best_tools_model_returns_none_when_none_capable(self):
-        reg = self._make_registry_with({
-            "deepseek-r1:14b": False,
-            "gemma3:12b": False,
-        })
+        reg = self._make_registry_with(
+            {
+                "deepseek-r1:14b": False,
+                "gemma3:12b": False,
+            }
+        )
         assert reg.best_tools_model() is None
 
     def test_best_tools_model_returns_none_when_registry_empty(self):

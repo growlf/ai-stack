@@ -1,0 +1,68 @@
+name: Lint
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  python-lint:
+    name: Python lint + format (ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install ruff
+        run: pip install --quiet ruff
+
+      - name: Lint (ruff check)
+        run: ruff check .
+
+      - name: Format check (ruff format --check)
+        run: ruff format --check .
+
+  env-parity:
+    name: .env.example parity
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Check env-var references vs .env.example
+        run: python3 scripts/check-env-example.py
+
+  js-format:
+    name: JS/CSS format check (prettier)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Install prettier
+        run: npm install --no-save --silent prettier
+
+      - name: Format check
+        run: npx prettier --check "shepherd/ui/**/*.{js,css}" "**/*.json" || true
+        # Soft-fail for now — JS/CSS surface is small and we don't have a
+        # committed prettier config yet. Hardens to a fail once we settle
+        # on quotes/indents/etc. for the JS+CSS surface.

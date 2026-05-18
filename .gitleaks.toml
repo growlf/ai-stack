@@ -1,0 +1,44 @@
+title = "ai-stack gitleaks config"
+
+[extend]
+# Inherit the upstream default rules — catches AWS keys, GitHub PATs, Slack tokens,
+# OpenSSH private keys, common JWT/JWS shapes, etc.
+useDefault = true
+
+# ── Project-specific patterns ──────────────────────────────────────────────────
+
+[[rules]]
+id = "opencode-zen-bigpickle"
+description = "OpenCode Zen / Big Pickle API key"
+regex = '''sk-[A-Za-z0-9]{48,}'''
+tags = ["key", "opencode-zen", "bigpickle"]
+
+[[rules]]
+id = "litellm-master-key"
+description = "LiteLLM master key (live, sk-prefix)"
+regex = '''(?i)LITELLM_MASTER_KEY\s*[:=]\s*['"]?sk-[A-Za-z0-9_-]{20,}['"]?'''
+tags = ["key", "litellm"]
+
+[[rules]]
+id = "netbird-setup-key"
+description = "NetBird setup key (NB-prefix shape)"
+regex = '''NB[A-Z0-9]{6}_[A-Za-z0-9]{16,}'''
+tags = ["key", "netbird"]
+
+# ── Allowlist: known safe contexts ────────────────────────────────────────────
+
+[allowlist]
+description = "Documentation + example files may show placeholder credentials. The regexes list excludes generic placeholder strings (your-key-here, changeme, REDACTED, etc.) wherever they appear."
+paths = [
+    '''\.env\.example$''',
+    '''(^|/)docs/.*\.md$''',
+    '''(^|/)README\.md$''',
+    '''(^|/)AGENTS\.md$''',
+    '''(^|/)PLANS\.md$''',
+    '''(^|/)CHANGELOG\.md$''',
+    '''\.gitleaks\.toml$''',
+    '''shepherd/.*README\.md$''',
+]
+regexes = [
+    '''(?i)(your[-_]?key[-_]?here|example|placeholder|change[-_]?this|REDACTED|<.*>)''',
+]

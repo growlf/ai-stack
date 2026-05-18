@@ -6,7 +6,6 @@ tooling.
 """
 
 import shutil
-from typing import Optional
 
 from . import VerificationProbe, VerificationResult
 
@@ -18,7 +17,7 @@ class AmdRocmVerificationProbe(VerificationProbe):
     def is_applicable(self) -> bool:
         return shutil.which("rocm-smi") is not None
 
-    async def verify(self, ollama_ps_state: Optional[dict] = None) -> VerificationResult:
+    async def verify(self, ollama_ps_state: dict | None = None) -> VerificationResult:
         return VerificationResult(
             accelerator_type="amd",
             alive=True,

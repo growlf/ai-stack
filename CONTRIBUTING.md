@@ -15,6 +15,7 @@ Thank you for your interest in contributing! This project is built from real hom
 
 - Docker and Docker Compose installed
 - `shellcheck` for linting shell scripts (`sudo apt install shellcheck`)
+- `ruff` for Python lint + format (`pip install ruff`)
 
 ### Making changes
 
@@ -25,14 +26,25 @@ Thank you for your interest in contributing! This project is built from real hom
 
 2. **Make your changes.** Keep commits focused and atomic.
 
-3. **Validate** before opening a PR:
+3. **Pre-flight check before opening a PR** — same checks CI runs, run locally to catch issues before push:
    ```bash
-   # Validate docker-compose.yml
+   # Docker compose syntax
    docker compose config
 
-   # Lint shell scripts
-    shellcheck scripts/*.sh install.sh
+   # Shell scripts
+   shellcheck scripts/*.sh install.sh
+
+   # Python lint + format check
+   ruff check .
+   ruff format --check .
+
+   # .env.example parity (warns if you added an env var to code without
+   # updating .env.example — hard-fail in CI)
+   python3 scripts/check-env-example.py
    ```
+
+   If you added or removed env vars, update `.env.example` with a placeholder value
+   and a comment describing what the variable is for.
 
 4. **Never commit real credentials.**
    - Use `<vaultwarden:org/item>` placeholders for API keys if Bitwarden is configured

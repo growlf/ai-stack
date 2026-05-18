@@ -11,7 +11,6 @@ was recognized but actively-verified state isn't yet asserted.
 """
 
 import shutil
-from typing import Optional
 
 from . import VerificationProbe, VerificationResult
 
@@ -26,12 +25,14 @@ class IntelArcVerificationProbe(VerificationProbe):
         # we mirror its hardware sense here.
         return shutil.which("intel_gpu_top") is not None
 
-    async def verify(self, ollama_ps_state: Optional[dict] = None) -> VerificationResult:
+    async def verify(self, ollama_ps_state: dict | None = None) -> VerificationResult:
         return VerificationResult(
             accelerator_type="intel-arc",
             alive=True,
             sources_checked=[],
             divergence_reasons=[],
             implementation_status="stub",
-            extra={"note": "Intel Arc verification pending — see Phoenix Arc backlog at ~/enclave-core/docs/phoenix-arc-investigation-backlog.md"},
+            extra={
+                "note": "Intel Arc verification pending — see Phoenix Arc backlog at ~/enclave-core/docs/phoenix-arc-investigation-backlog.md"
+            },
         )

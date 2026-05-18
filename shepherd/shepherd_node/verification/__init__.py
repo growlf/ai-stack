@@ -25,7 +25,7 @@ without claiming readings we can't make.
 """
 
 from abc import ABC, abstractmethod
-from typing import Optional, Literal
+from typing import Literal
 
 from pydantic import BaseModel
 
@@ -56,7 +56,7 @@ class RecoveryAttempt(BaseModel):
     attempted: bool
     """True if a recovery action was actually run."""
 
-    success: Optional[bool] = None
+    success: bool | None = None
     """True/False if recovery completed and was re-verified. None if we don't know yet."""
 
     action: str = ""
@@ -78,7 +78,7 @@ class VerificationProbe(ABC):
         """True if this probe can run on the current host (relevant hardware + tooling present)."""
 
     @abstractmethod
-    async def verify(self, ollama_ps_state: Optional[dict] = None) -> VerificationResult:
+    async def verify(self, ollama_ps_state: dict | None = None) -> VerificationResult:
         """Run cross-source checks and return a VerificationResult.
 
         ollama_ps_state is the most recent /api/ps response (or None if collection failed).
@@ -107,12 +107,12 @@ def select_verification_probe(metrics_probe_name: str) -> "VerificationProbe":
     Mirrors `select_probe()` in ../probes/__init__.py — keeps verification + metrics
     aligned on the same hardware family.
     """
-    from .nvidia import NvidiaVerificationProbe
-    from .intel_arc import IntelArcVerificationProbe
-    from .intel_iris import IntelIrisVerificationProbe
     from .amd_rocm import AmdRocmVerificationProbe
     from .apple_silicon import AppleSiliconVerificationProbe
     from .cpu import CpuVerificationProbe
+    from .intel_arc import IntelArcVerificationProbe
+    from .intel_iris import IntelIrisVerificationProbe
+    from .nvidia import NvidiaVerificationProbe
 
     by_name = {
         "nvidia": NvidiaVerificationProbe,

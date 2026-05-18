@@ -1,0 +1,38 @@
+# Ruff config — Python linting + formatting for ai-stack
+# Replaces black + isort + flake8 + pyupgrade with a single fast tool.
+# Contributors run locally:  ruff check . && ruff format --check .
+
+target-version = "py311"
+line-length = 110
+
+exclude = [
+    ".git",
+    ".venv",
+    "venv",
+    "__pycache__",
+    "build",
+    "dist",
+    "node_modules",
+]
+
+[lint]
+# Sensible default rule set; explicit rather than relying on ruff defaults
+# changing across versions.
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # pyflakes
+    "I",      # isort (import sorting)
+    "B",      # flake8-bugbear (common bugs)
+    "UP",     # pyupgrade (modernize syntax)
+]
+
+# Pragmatic ignores — long lines and inline-style choices are project-author's call
+ignore = [
+    "E501",   # line-too-long (line-length covers the cases that matter)
+    "B008",   # do not perform function call in argument defaults (FastAPI Depends() is fine)
+]
+
+[format]
+quote-style = "double"
+indent-style = "space"

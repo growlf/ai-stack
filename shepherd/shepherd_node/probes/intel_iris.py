@@ -8,7 +8,7 @@ investigation arc applies.
 import os
 import subprocess
 
-from . import Probe, HardwareMetrics
+from . import HardwareMetrics, Probe
 
 
 class IntelIrisProbe(Probe):
@@ -21,13 +21,20 @@ class IntelIrisProbe(Probe):
         try:
             r = subprocess.run(
                 ["lspci", "-nn"],
-                capture_output=True, text=True, timeout=2, check=False,
+                capture_output=True,
+                text=True,
+                timeout=2,
+                check=False,
             )
             if r.returncode != 0:
                 return False
             text = r.stdout
             # Heuristic: Intel VGA controller that isn't Arc.
-            return "[8086:" in text and ("Iris" in text or "UHD" in text or "HD Graphics" in text) and "Arc" not in text
+            return (
+                "[8086:" in text
+                and ("Iris" in text or "UHD" in text or "HD Graphics" in text)
+                and "Arc" not in text
+            )
         except (FileNotFoundError, subprocess.TimeoutExpired):
             return False
 

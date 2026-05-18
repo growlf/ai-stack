@@ -3,7 +3,7 @@
 import shutil
 import subprocess
 
-from . import Probe, HardwareMetrics
+from . import HardwareMetrics, Probe
 
 
 class NvidiaProbe(Probe):
@@ -17,7 +17,9 @@ class NvidiaProbe(Probe):
         try:
             r = subprocess.run(
                 ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
-                capture_output=True, timeout=2, check=False,
+                capture_output=True,
+                timeout=2,
+                check=False,
             )
             return r.returncode == 0 and r.stdout.strip() != b""
         except (FileNotFoundError, subprocess.TimeoutExpired):
@@ -31,7 +33,10 @@ class NvidiaProbe(Probe):
                 "--query-gpu=name,memory.used,memory.total,utilization.gpu,power.draw,temperature.gpu",
                 "--format=csv,noheader,nounits",
             ],
-            capture_output=True, text=True, timeout=3, check=False,
+            capture_output=True,
+            text=True,
+            timeout=3,
+            check=False,
         )
         if r.returncode != 0:
             return HardwareMetrics(

@@ -6,7 +6,7 @@ via a future POST /herd/report-from-browser endpoint. Stub exists to keep the sc
 shape stable.
 """
 
-from . import Probe, HardwareMetrics
+from . import HardwareMetrics, Probe
 
 
 class WebGpuProbe(Probe):
