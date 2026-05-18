@@ -2,6 +2,21 @@
 
 > The name follows the project's existing herd metaphor (Ollama = llamas, federation, palette, warm pool). A shepherd watches over a herd — counts the flock, notices when one wanders, alerts when something looks wrong.
 
+## External watcher (Layer 6 of the GPU-integrity plan)
+
+shepherd-control runs ON the herd (typically on cluster-llm). If cluster-llm itself regresses, the canary stops watching with it — that's the "watch the watcher" gap. The fix: run `scripts/shepherd-external-watcher.py` from a host OUTSIDE the herd (operator laptop, dev box, a non-cluster-llm peer with NetBird access). It polls `/herd/aggregate`, checks staleness + reachable-peer count, exits non-zero when the herd is unhealthy. Wire that exit status to whatever notification path you prefer:
+
+```bash
+# Cron on an off-herd host (every 5 min):
+*/5 * * * * /path/to/ai-stack/scripts/shepherd-external-watcher.py \
+    --url http://100.123.141.125:40117/herd/aggregate \
+    --max-age-s 60 --min-healthy-peers 1 \
+    >> /tmp/shepherd-external-watcher.log 2>&1 \
+    || mail -s "Shepherd watcher: herd unhealthy" you@example.com < /tmp/shepherd-external-watcher.log
+```
+
+Replace `mail` with `curl -X POST <webhook>` for chat-platform notifications, or hand the exit status to your incident-paging system.
+
 ## Deployment on herd peers (auto-pull pattern)
 
 **Operating model:** cluster-llm is the canonical edit/test node. All other herd peers (lab1-4, nuk1, Phoenix) pull main and auto-redeploy on a daily cron. No per-node operator SSH after initial setup.
