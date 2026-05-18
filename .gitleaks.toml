@@ -28,7 +28,7 @@ tags = ["key", "netbird"]
 # ── Allowlist: known safe contexts ────────────────────────────────────────────
 
 [allowlist]
-description = "Documentation + example files may show placeholder credentials"
+description = "Documentation + example files may show placeholder credentials. The regexes list excludes generic placeholder strings (your-key-here, changeme, REDACTED, etc.) wherever they appear."
 paths = [
     '''\.env\.example$''',
     '''(^|/)docs/.*\.md$''',
@@ -39,7 +39,6 @@ paths = [
     '''\.gitleaks\.toml$''',
     '''shepherd/.*README\.md$''',
 ]
-
-[[allowlist.regexes]]
-description = "Generic placeholder strings"
-regex = '''(?i)(your[-_]?key[-_]?here|example|placeholder|change[-_]?this|REDACTED|<.*>)'''
+regexes = [
+    '''(?i)(your[-_]?key[-_]?here|example|placeholder|change[-_]?this|REDACTED|<.*>)''',
+]
