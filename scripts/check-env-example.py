@@ -26,7 +26,6 @@ import re
 import sys
 from pathlib import Path
 
-
 REPO_ROOT = Path(__file__).resolve().parent.parent
 ENV_EXAMPLE = REPO_ROOT / ".env.example"
 
@@ -41,10 +40,22 @@ COMPOSE_PATTERN = re.compile(r"\$\{([A-Z_][A-Z0-9_]*)(?::-[^}]*)?\}", re.MULTILI
 # Known env vars from outside the repo that we don't expect in .env.example
 # (system env or third-party expectations)
 ALLOWLIST = {
-    "HOME", "PATH", "USER", "HOSTNAME", "PWD", "SHELL", "TERM",
-    "PYTHONPATH", "LANG", "LC_ALL", "TZ",
+    "HOME",
+    "PATH",
+    "USER",
+    "HOSTNAME",
+    "PWD",
+    "SHELL",
+    "TERM",
+    "PYTHONPATH",
+    "LANG",
+    "LC_ALL",
+    "TZ",
     # CI-provided variables
-    "GITHUB_TOKEN", "GITHUB_REF", "GITHUB_SHA", "GITHUB_ACTOR",
+    "GITHUB_TOKEN",
+    "GITHUB_REF",
+    "GITHUB_SHA",
+    "GITHUB_ACTOR",
     "CI_VALIDATION_KEY",  # set inline in ci.yml for docker compose config
     # Variables documented at the docker compose syntax level but with defaults
     # baked into the compose file via ${X:-default}
@@ -180,7 +191,9 @@ def main() -> int:
         print()
 
     if missing_from_example:
-        print(f"❌ HARD FAIL: {len(missing_from_example)} variable(s) referenced in code but missing from .env.example:")
+        print(
+            f"❌ HARD FAIL: {len(missing_from_example)} variable(s) referenced in code but missing from .env.example:"
+        )
         for var in sorted(missing_from_example):
             locs = ", ".join(str(p) for p in sorted(all_refs[var]))
             print(f"    - {var}  (referenced in: {locs})")

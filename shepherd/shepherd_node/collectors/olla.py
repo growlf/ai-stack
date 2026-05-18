@@ -1,8 +1,8 @@
 """Olla collector — queries the local Olla /internal/status for federation state."""
 
 import os
-import httpx
 
+import httpx
 
 OLLA_URL = os.environ.get("OLLA_URL", "http://olla:40114")
 

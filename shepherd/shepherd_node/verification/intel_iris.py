@@ -5,7 +5,6 @@ toolchain), with usage-tier baselines appropriate for integrated graphics.
 """
 
 import shutil
-from typing import Optional
 
 from . import VerificationProbe, VerificationResult
 
@@ -17,7 +16,7 @@ class IntelIrisVerificationProbe(VerificationProbe):
     def is_applicable(self) -> bool:
         return shutil.which("intel_gpu_top") is not None
 
-    async def verify(self, ollama_ps_state: Optional[dict] = None) -> VerificationResult:
+    async def verify(self, ollama_ps_state: dict | None = None) -> VerificationResult:
         return VerificationResult(
             accelerator_type="intel-iris",
             alive=True,

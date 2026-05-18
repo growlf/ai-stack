@@ -19,17 +19,17 @@ Observable gestalt:
 - GET /gestalt/ui      — real-time dashboard (D3 force graph)
 """
 
-import os
-import json
 import asyncio
+import json
+import os
 import time
-import httpx
 from collections import deque
 from contextlib import asynccontextmanager
-from dataclasses import dataclass, asdict
-from typing import Optional, Tuple
+from dataclasses import dataclass
+
+import httpx
 from fastapi import FastAPI, Request, Response
-from fastapi.responses import StreamingResponse, HTMLResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 
 OLLA_URL = os.environ.get("OLLA_URL", "http://olla:40114")
 LISTEN_HOST = os.environ.get("LISTEN_HOST", "0.0.0.0")
@@ -37,25 +37,43 @@ LISTEN_PORT = int(os.environ.get("LISTEN_PORT", "40115"))
 CAPABILITY_REFRESH_INTERVAL = int(os.environ.get("CAPABILITY_REFRESH_INTERVAL", "300"))
 
 MODELS = {
-    "scripting":   "qwen2.5-coder:14b",
-    "reasoning":   "deepseek-r1:14b",
-    "longform":    "gemma3:12b",
-    "heavy":       "gemma3:12b",
-    "tools":       "llama3.1:8b",
-    "default":     "qwen2.5:7b",
+    "scripting": "qwen2.5-coder:14b",
+    "reasoning": "deepseek-r1:14b",
+    "longform": "gemma3:12b",
+    "heavy": "gemma3:12b",
+    "tools": "llama3.1:8b",
+    "default": "qwen2.5:7b",
 }
 
 # Model families known to support / not support tool calling.
 # Used as fallback when the Olla API is unavailable.
 _TOOL_CAPABLE_FAMILIES = {
-    "mistral", "llama3", "llama3.1", "llama3.2", "llama3.3",
-    "qwen2.5", "qwen3", "phi3.5", "phi4", "command-r",
-    "aya", "granite3", "nemotron", "hermes",
+    "mistral",
+    "llama3",
+    "llama3.1",
+    "llama3.2",
+    "llama3.3",
+    "qwen2.5",
+    "qwen3",
+    "phi3.5",
+    "phi4",
+    "command-r",
+    "aya",
+    "granite3",
+    "nemotron",
+    "hermes",
 }
 _TOOL_INCAPABLE_FAMILIES = {
-    "deepseek-r1", "deepseek-r2",
-    "gemma", "gemma2", "gemma3", "gemma4",
-    "nomic", "mxbai", "snowflake", "all-minilm",
+    "deepseek-r1",
+    "deepseek-r2",
+    "gemma",
+    "gemma2",
+    "gemma3",
+    "gemma4",
+    "nomic",
+    "mxbai",
+    "snowflake",
+    "all-minilm",
 }
 
 _CLASSIFY_MODEL = os.environ.get("CLASSIFY_MODEL", "qwen2.5:1.5b")
@@ -129,11 +147,11 @@ class CapabilityRegistry:
                         )
                 self._registry = fresh
                 self._last_refresh = time.monotonic()
-                print(f"[SmartRouter] Capability registry refreshed — {len(fresh)} models: "
-                      f"{', '.join(fresh)}")
+                print(
+                    f"[SmartRouter] Capability registry refreshed — {len(fresh)} models: {', '.join(fresh)}"
+                )
         except Exception as exc:
-            print(f"[SmartRouter] Capability refresh failed ({exc}) — "
-                  f"routing with static MODELS fallback")
+            print(f"[SmartRouter] Capability refresh failed ({exc}) — routing with static MODELS fallback")
 
     def supports_tools(self, model_name: str) -> bool:
         cap = self._registry.get(model_name)
@@ -144,14 +162,14 @@ class CapabilityRegistry:
             return True  # no data yet — assume available
         return model_name in self._registry
 
-    def best_tools_model(self) -> Optional[str]:
+    def best_tools_model(self) -> str | None:
         """Return the first available model that supports tool calling."""
         for name, cap in self._registry.items():
             if cap.tools and cap.available:
                 return name
         return None
 
-    def best_available(self, exclude: str = "") -> Optional[str]:
+    def best_available(self, exclude: str = "") -> str | None:
         """Return any available model, optionally excluding a specific name."""
         for name in self._registry:
             if name != exclude:
@@ -181,7 +199,7 @@ async def lifespan(app: FastAPI):
     task.cancel()
 
 
-async def classify(text: str) -> Tuple[str, str]:
+async def classify(text: str) -> tuple[str, str]:
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(15.0)) as client:
             resp = await client.post(
@@ -205,7 +223,7 @@ async def classify(text: str) -> Tuple[str, str]:
     return MODELS["default"], "default"
 
 
-def _parse_body(body: bytes) -> Optional[dict]:
+def _parse_body(body: bytes) -> dict | None:
     """Parse request body once. Returns None on invalid JSON."""
     try:
         return json.loads(body)
@@ -273,8 +291,10 @@ async def handle_request(data: dict) -> dict:
                 print(f"[SmartRouter] {preferred} not suitable for tools, using {fallback}")
                 preferred = fallback
             else:
-                print(f"[SmartRouter] WARNING: no tool-capable model available; "
-                      f"sending {preferred} anyway (may fail)")
+                print(
+                    f"[SmartRouter] WARNING: no tool-capable model available; "
+                    f"sending {preferred} anyway (may fail)"
+                )
         model, reason = preferred, f"tools ({reason})"
 
     if needs_tools and not registry.supports_tools(model):
@@ -304,6 +324,7 @@ async def handle_request(data: dict) -> dict:
 
 
 # ── Gestalt cluster status ────────────────────────────────────────────────────
+
 
 async def _fetch_olla_endpoints() -> list[dict]:
     """Query Olla's internal status endpoint for known nodes."""
@@ -574,8 +595,7 @@ async def list_models():
     """Return available models from Olla."""
     async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as client:
         resp = await client.get(f"{OLLA_URL}/olla/ollama/v1/models")
-        return Response(content=resp.content, status_code=resp.status_code,
-                        headers=dict(resp.headers))
+        return Response(content=resp.content, status_code=resp.status_code, headers=dict(resp.headers))
 
 
 @app.get("/v1/router/capabilities")
@@ -627,7 +647,7 @@ async def gestalt_events():
                 try:
                     event = await asyncio.wait_for(queue.get(), timeout=15.0)
                     yield f"data: {json.dumps(event)}\n\n"
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     yield ": keepalive\n\n"
         finally:
             try:
@@ -664,8 +684,9 @@ async def proxy(request: Request, path: str):
                 routed = await handle_request(data)
                 body = json.dumps(routed).encode()
 
-        async with httpx.AsyncClient(timeout=httpx.Timeout(connect=10.0, read=300.0,
-                                                             write=10.0, pool=10.0)) as client:
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(connect=10.0, read=300.0, write=10.0, pool=10.0)
+        ) as client:
             url = f"{OLLA_URL}/olla/ollama/{path}"
             headers = dict(request.headers)
             headers.pop("host", None)
@@ -690,6 +711,7 @@ async def proxy(request: Request, path: str):
 
 def main():
     import uvicorn
+
     print(f"[SmartRouter] Listening on {LISTEN_HOST}:{LISTEN_PORT}")
     print(f"[SmartRouter] Forwarding to Olla at {OLLA_URL}")
     print(f"[SmartRouter] Capability refresh interval: {CAPABILITY_REFRESH_INTERVAL}s")

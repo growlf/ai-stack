@@ -8,7 +8,6 @@ Metal engine activity during inference.
 """
 
 import shutil
-from typing import Optional
 
 from . import VerificationProbe, VerificationResult
 
@@ -20,12 +19,14 @@ class AppleSiliconVerificationProbe(VerificationProbe):
     def is_applicable(self) -> bool:
         return shutil.which("powermetrics") is not None
 
-    async def verify(self, ollama_ps_state: Optional[dict] = None) -> VerificationResult:
+    async def verify(self, ollama_ps_state: dict | None = None) -> VerificationResult:
         return VerificationResult(
             accelerator_type="apple-silicon",
             alive=True,
             sources_checked=[],
             divergence_reasons=[],
             implementation_status="stub",
-            extra={"note": "Apple Silicon verification pending — unified-memory model differs from discrete GPUs"},
+            extra={
+                "note": "Apple Silicon verification pending — unified-memory model differs from discrete GPUs"
+            },
         )

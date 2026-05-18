@@ -14,9 +14,8 @@ from pathlib import Path
 
 import httpx
 from fastapi import FastAPI
-from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
-
 
 # Human-friendly name for the host running shepherd-control. Used to substitute
 # "localhost" / "127.0.0.1" in discovered_via attribution so the dashboard says
@@ -133,7 +132,9 @@ async def maybe_recover_peer(peer: dict):
             state["last_action"] = attempt.get("action", "")
             success = attempt.get("success")
             msg = attempt.get("message", "")[:200]
-            print(f"[shepherd-control] {name}: recovery attempt → success={success} action={state['last_action']} msg={msg}")
+            print(
+                f"[shepherd-control] {name}: recovery attempt → success={success} action={state['last_action']} msg={msg}"
+            )
     except Exception as e:
         print(f"[shepherd-control] {name}: recovery POST failed: {type(e).__name__}: {e}")
 
@@ -260,32 +261,34 @@ async def derive_olla_peers() -> list[dict]:
                 url = "http://" + raw_name.replace("_", ".") + ":11434"
             resident_models = await fetch_remote_ollama_models(url) if (status == "healthy" and url) else []
 
-            lite_peers.append({
-                "name": display_name,
-                "address": url,
-                "olla_endpoint_name": raw_name,
-                "role": "herd peer (lite via Olla)",
-                "reachable": status == "healthy",
-                "data_quality": "lite",
-                "hardware": {
-                    "accelerator_type": "unknown",
-                    "accelerator_name": "via Olla federation (deploy shepherd-node for full data)",
-                    "implementation_status": "stub",
-                },
-                "system": None,
-                "ollama": {
-                    "responding": status == "healthy",
-                    "resident_models": resident_models,
-                    "model_count_via_olla": models_count,
-                },
-                "olla": {
-                    "responding": True,
-                    "status_via_local_olla": status,
-                    "issues": endpoint.get("issues", ""),
-                    "discovered_via": _normalize_discovery_source(olla_url),
-                    "discovered_via_raw": olla_url,
-                },
-            })
+            lite_peers.append(
+                {
+                    "name": display_name,
+                    "address": url,
+                    "olla_endpoint_name": raw_name,
+                    "role": "herd peer (lite via Olla)",
+                    "reachable": status == "healthy",
+                    "data_quality": "lite",
+                    "hardware": {
+                        "accelerator_type": "unknown",
+                        "accelerator_name": "via Olla federation (deploy shepherd-node for full data)",
+                        "implementation_status": "stub",
+                    },
+                    "system": None,
+                    "ollama": {
+                        "responding": status == "healthy",
+                        "resident_models": resident_models,
+                        "model_count_via_olla": models_count,
+                    },
+                    "olla": {
+                        "responding": True,
+                        "status_via_local_olla": status,
+                        "issues": endpoint.get("issues", ""),
+                        "discovered_via": _normalize_discovery_source(olla_url),
+                        "discovered_via_raw": olla_url,
+                    },
+                }
+            )
     return lite_peers
 
 
@@ -298,7 +301,9 @@ async def poll_all_peers():
     global _snapshot
     real = await asyncio.gather(*[poll_one_peer(n, u) for n, u in PEERS])
     lite = await derive_olla_peers()
-    print(f"[shepherd-control] poll → {len(real)} real + {len(lite)} lite peers: {[n.get('name') for n in lite]}")
+    print(
+        f"[shepherd-control] poll → {len(real)} real + {len(lite)} lite peers: {[n.get('name') for n in lite]}"
+    )
     _snapshot = {
         "nodes": list(real) + list(lite),
         "timestamp": time.time(),

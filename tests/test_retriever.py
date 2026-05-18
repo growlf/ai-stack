@@ -5,8 +5,9 @@ Mocks DB and embedding dependencies — no sqlite DB or Ollama service required.
 The retriever module is imported with sys.path set in conftest.py.
 """
 
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
-from unittest.mock import patch, AsyncMock, MagicMock
 from fastapi.testclient import TestClient
 
 
@@ -22,6 +23,7 @@ def _make_client():
         patch("os.path.isdir", return_value=False),  # skip initial scan in lifespan
     ):
         import main as retriever_main
+
         with TestClient(retriever_main.app) as client:
             yield client
 
@@ -34,6 +36,7 @@ def client():
 # ---------------------------------------------------------------------------
 # GET /health
 # ---------------------------------------------------------------------------
+
 
 class TestHealth:
     def test_returns_200(self, client):
@@ -60,6 +63,7 @@ class TestHealth:
 # ---------------------------------------------------------------------------
 # POST /search
 # ---------------------------------------------------------------------------
+
 
 class TestSearch:
     def test_returns_200_for_valid_query(self, client):
@@ -116,6 +120,7 @@ class TestSearch:
 # ---------------------------------------------------------------------------
 # POST /reindex
 # ---------------------------------------------------------------------------
+
 
 class TestReindex:
     def test_returns_200(self, client):

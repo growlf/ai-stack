@@ -10,8 +10,8 @@ used). Graceful unload (model leaves /api/ps) does *not* fire the warning; only 
 """
 
 import os
-import httpx
 
+import httpx
 
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://ollama:11434")
 
@@ -47,18 +47,20 @@ async def collect_ollama() -> dict:
         previous = _last_vram_mb_by_model.get(name, 0)
         # Drop-to-zero on a still-loaded model = silent CPU fallback signal
         if previous > 0 and current == 0:
-            gpu_warnings.append({
-                "model": name,
-                "kind": "size_vram_drop_to_zero",
-                "previous_vram_mb": previous,
-                "current_vram_mb": 0,
-                "message": (
-                    f"Model {name} was {previous} MB in VRAM, now reports 0 MB. "
-                    "Ollama still has the model in /api/ps — likely silent CPU fallback "
-                    "(NVML handle drift, container GPU passthrough lost, or similar). "
-                    "Verify with host nvidia-smi / intel_gpu_top."
-                ),
-            })
+            gpu_warnings.append(
+                {
+                    "model": name,
+                    "kind": "size_vram_drop_to_zero",
+                    "previous_vram_mb": previous,
+                    "current_vram_mb": 0,
+                    "message": (
+                        f"Model {name} was {previous} MB in VRAM, now reports 0 MB. "
+                        "Ollama still has the model in /api/ps — likely silent CPU fallback "
+                        "(NVML handle drift, container GPU passthrough lost, or similar). "
+                        "Verify with host nvidia-smi / intel_gpu_top."
+                    ),
+                }
+            )
         _last_vram_mb_by_model[name] = current
 
     # Forget state for models no longer in /api/ps (graceful unload, not a warning case)

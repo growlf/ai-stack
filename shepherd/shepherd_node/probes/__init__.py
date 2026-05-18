@@ -11,7 +11,7 @@ community contributor with (say) AMD hardware sees their node in the dashboard a
 """
 
 from abc import ABC, abstractmethod
-from typing import Optional
+
 from pydantic import BaseModel
 
 
@@ -22,17 +22,17 @@ class HardwareMetrics(BaseModel):
     accelerator_name: str
     """Human-readable, e.g. 'RTX 3090 Ti' or 'Intel(R) Arc(TM) Graphics'."""
 
-    vram_used_mb: Optional[int] = None
+    vram_used_mb: int | None = None
     """None for CPU-only or stub probes."""
 
-    vram_total_mb: Optional[int] = None
+    vram_total_mb: int | None = None
 
-    utilization_pct: Optional[int] = None
+    utilization_pct: int | None = None
     """0-100. None for CPU-only or when the probe can't read this."""
 
-    power_watts: Optional[float] = None
+    power_watts: float | None = None
 
-    temp_celsius: Optional[int] = None
+    temp_celsius: int | None = None
 
     implementation_status: str = "implemented"
     """Either 'implemented' (real readings) or 'stub' (hardware recognized, metrics not yet)."""
@@ -56,13 +56,14 @@ class Probe(ABC):
 
 def discover_probes() -> list[Probe]:
     """Return all probe instances in registration order. First available wins."""
-    from .nvidia import NvidiaProbe
-    from .intel_arc import IntelArcProbe
-    from .intel_iris import IntelIrisProbe
     from .amd_rocm import AmdRocmProbe
     from .apple_silicon import AppleSiliconProbe
-    from .webgpu import WebGpuProbe
     from .cpu import CpuProbe
+    from .intel_arc import IntelArcProbe
+    from .intel_iris import IntelIrisProbe
+    from .nvidia import NvidiaProbe
+    from .webgpu import WebGpuProbe
+
     return [
         NvidiaProbe(),
         IntelArcProbe(),
@@ -80,4 +81,5 @@ def select_probe() -> Probe:
         if probe.is_available():
             return probe
     from .cpu import CpuProbe
+
     return CpuProbe()

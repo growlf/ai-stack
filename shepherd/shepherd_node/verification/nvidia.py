@@ -18,10 +18,8 @@ access from shepherd-node, which adds privilege scope. Layer 3.5 work.).
 import asyncio
 import os
 import shutil
-from typing import Optional
 
-from . import VerificationProbe, VerificationResult, RecoveryAttempt
-
+from . import RecoveryAttempt, VerificationProbe, VerificationResult
 
 # Container name to restart on recovery. Defaults to "ollama" (matches the
 # docker-compose service name on cluster-llm). Override via env if a different
@@ -43,7 +41,7 @@ class NvidiaVerificationProbe(VerificationProbe):
     def is_applicable(self) -> bool:
         return shutil.which("nvidia-smi") is not None
 
-    async def verify(self, ollama_ps_state: Optional[dict] = None) -> VerificationResult:
+    async def verify(self, ollama_ps_state: dict | None = None) -> VerificationResult:
         sources = []
         reasons = []
         extra: dict = {}
@@ -66,7 +64,7 @@ class NvidiaVerificationProbe(VerificationProbe):
                 line = stdout.decode().strip().splitlines()[0]
                 host_used_mb = int(line.split(",")[0].strip())
                 extra["host_smi_used_mb"] = host_used_mb
-        except (asyncio.TimeoutError, FileNotFoundError, ValueError, IndexError) as e:
+        except (TimeoutError, FileNotFoundError, ValueError, IndexError) as e:
             reasons.append(f"host nvidia-smi parse error: {type(e).__name__}: {e}")
             host_used_mb = None
 
@@ -116,7 +114,9 @@ class NvidiaVerificationProbe(VerificationProbe):
         action = f"docker restart {OLLAMA_CONTAINER_NAME}"
         try:
             proc = await asyncio.create_subprocess_exec(
-                "docker", "restart", OLLAMA_CONTAINER_NAME,
+                "docker",
+                "restart",
+                OLLAMA_CONTAINER_NAME,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -127,7 +127,7 @@ class NvidiaVerificationProbe(VerificationProbe):
                     success=True,
                     action=action,
                     message=f"Container '{OLLAMA_CONTAINER_NAME}' restarted; "
-                            f"re-verify via /herd/verify after warm-up.",
+                    f"re-verify via /herd/verify after warm-up.",
                 )
             else:
                 return RecoveryAttempt(
@@ -136,7 +136,7 @@ class NvidiaVerificationProbe(VerificationProbe):
                     action=action,
                     message=f"docker exit {proc.returncode}: {stderr.decode().strip()[:300]}",
                 )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return RecoveryAttempt(
                 attempted=True,
                 success=False,

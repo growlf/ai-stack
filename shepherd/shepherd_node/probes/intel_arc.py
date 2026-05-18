@@ -14,7 +14,7 @@ metrics pending") and return a stub HardwareMetrics with implementation_status='
 import os
 import subprocess
 
-from . import Probe, HardwareMetrics
+from . import HardwareMetrics, Probe
 
 
 class IntelArcProbe(Probe):
@@ -29,7 +29,10 @@ class IntelArcProbe(Probe):
         try:
             r = subprocess.run(
                 ["lspci", "-nn"],
-                capture_output=True, text=True, timeout=2, check=False,
+                capture_output=True,
+                text=True,
+                timeout=2,
+                check=False,
             )
             if r.returncode != 0:
                 return False
