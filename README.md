@@ -145,6 +145,14 @@ cd ai-stack
 
 The installer auto-detects your GPU (NVIDIA, Intel Arc, or CPU-only), creates `.env`, generates your API key, and starts the stack. Open `http://localhost:40117/` (Shepherd dashboard) when it completes.
 
+**Older Intel iGPU?** (Iris Pro / Iris / UHD / Gen 9 etc., pre-Arc.) `install.sh` falls back to CPU-only for these — ipex-llm doesn't support pre-11th-Gen iGPUs. Use the Vulkan path instead:
+
+```bash
+./scripts/install-vulkan-ollama.sh   # native Ollama + Vulkan/Mesa ANV
+```
+
+See [`docs/hardware/intel-igpu-vulkan.md`](docs/hardware/intel-igpu-vulkan.md) for the procedure and supported hardware list. The rest of ai-stack (Olla, LiteLLM, Router, Shepherd) still runs via `docker compose` — it just connects to the native Ollama on `localhost:11434`.
+
 To add cloud models (Claude, Gemini, OpenCode Zen) after install:
 ```bash
 echo 'ANTHROPIC_API_KEY=sk-ant-...' >> .env
