@@ -9,7 +9,6 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 info()    { echo -e "\033[1;34m[INFO]\033[0m  $*"; }
 success() { echo -e "\033[1;32m[OK]\033[0m    $*"; }
