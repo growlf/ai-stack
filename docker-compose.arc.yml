@@ -24,10 +24,11 @@ services:
       - ZES_ENABLE_SYSMAN=1
       - OLLAMA_DEBUG=1
     devices:
-      # GPU card node — may be card0 or card1 depending on boot order.
-      # Run scripts/check-arc-gpu.sh to find the correct device paths.
-      - ${GPU_CARD:-/dev/dri/card1}:${GPU_CARD:-/dev/dri/card1}
-      - ${GPU_RENDER:-/dev/dri/renderD128}:${GPU_RENDER:-/dev/dri/renderD128}
+      # Whole-/dev/dri pass-through per 2026-05-18 validation (bms-ai-cluster Solution_files).
+      # Avoids per-boot card-number drift + exposes by-path/ symlinks the driver may use.
+      # Defensive change: doesn't affect this deployment (card0 was already mounted via .env override)
+      # but eliminates a class of substrate-vs-config-diff bugs across boots / hosts.
+      - /dev/dri:/dev/dri
     shm_size: '${OLLAMA_SHM_SIZE:-16gb}'
     mem_limit: '${OLLAMA_MEM_LIMIT:-32g}'
     healthcheck:
