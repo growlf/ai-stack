@@ -380,3 +380,167 @@ footer .federation {
   .totals-value { font-size: 3rem; }
   .lite-stat-value.big { font-size: 2.4rem; }
 }
+
+/* ─── Hub page (landing / services-index view) ────────────────────────────── */
+/* Activated via body.hub. Different from body.kiosk in that it allows scrolling
+   and uses a card-grid instead of the fixed kiosk-fill layout. */
+
+body.hub {
+  overflow: auto;
+}
+
+body.hub main {
+  display: block;
+  padding: 2rem 2.5rem 3rem;
+  max-width: 1400px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.hub-intro {
+  padding: 1rem 0 2rem;
+}
+
+.hub-intro h1 {
+  font-size: 2rem;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 0.5rem;
+}
+
+.hub-intro p {
+  color: var(--text-dim);
+  font-size: 1.05rem;
+  max-width: 60ch;
+  line-height: 1.5;
+}
+
+.hub-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 1.25rem;
+  margin-bottom: 2.5rem;
+}
+
+.service-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--text-mute);
+  border-radius: 8px;
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  transition: transform 0.15s ease, border-color 0.15s ease;
+}
+
+.service-card:hover { transform: translateY(-2px); border-color: var(--accent); }
+.service-card.status-up { border-left-color: var(--green); }
+.service-card.status-down { border-left-color: var(--red); opacity: 0.85; }
+.service-card.status-checking { border-left-color: var(--yellow); }
+
+.service-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.service-card-title {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.service-card-emoji { font-size: 1.4rem; }
+.service-card-name { font-size: 1.1rem; font-weight: 600; color: var(--text); }
+
+.service-badge {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  background: var(--bg-card-2);
+  color: var(--text-mute);
+  white-space: nowrap;
+}
+
+.service-badge.up { color: var(--green); background: rgba(74, 222, 128, 0.1); }
+.service-badge.down { color: var(--red); background: rgba(248, 113, 113, 0.1); }
+.service-badge.checking { color: var(--yellow); background: rgba(250, 204, 21, 0.1); }
+
+.service-desc { color: var(--text-dim); font-size: 0.92rem; line-height: 1.4; }
+
+.service-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-top: auto;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--border);
+}
+
+.service-port { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 0.8rem; color: var(--text-mute); }
+
+.service-link {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 0.9rem;
+  padding: 0.3rem 0.7rem;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  transition: background 0.15s ease;
+}
+
+.service-link:hover { background: var(--accent); color: var(--bg); }
+
+/* Docs section ───────────────────────────────────────────────────────────── */
+
+.hub-docs { margin-top: 2.5rem; }
+
+.hub-docs h2 {
+  font-size: 1.35rem;
+  font-weight: 600;
+  margin-bottom: 1rem;
+  color: var(--text);
+}
+
+.hub-doc-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1rem;
+}
+
+.doc-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1.1rem 1.25rem;
+}
+
+.doc-card h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin-bottom: 0.6rem;
+  color: var(--accent);
+}
+
+.doc-card ul { list-style: none; }
+.doc-card li { padding: 0.3rem 0; border-bottom: 1px solid transparent; }
+.doc-card li + li { border-top: 1px solid var(--border); }
+
+.doc-card a {
+  color: var(--text);
+  text-decoration: none;
+  font-size: 0.95rem;
+  display: block;
+}
+
+.doc-card a:hover { color: var(--accent); }
+
+.footer-link { color: var(--accent); text-decoration: none; }
+.footer-link:hover { text-decoration: underline; }

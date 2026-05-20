@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ai-stack — services hub</title>
+  <link rel="stylesheet" href="/ui/shepherd.css">
+</head>
+<body class="hub">
+  <header>
+    <div class="brand">
+      <span class="emoji">🐑</span>
+      <span class="name">ai-stack</span>
+      <span class="tagline">services hub</span>
+    </div>
+    <div class="status" id="overall-status">checking services…</div>
+    <div class="clock" id="clock"></div>
+  </header>
+
+  <main>
+    <section class="hub-intro">
+      <h1>One pane for the herd.</h1>
+      <p>
+        Quick-links to every service running on this node, plus docs and
+        per-hardware standalone guides for setting up the stack on
+        different machine classes.
+      </p>
+    </section>
+
+    <section class="hub-grid" id="hub-grid" aria-label="Services">
+      <!-- Service cards rendered by hub.js. Each card has:
+           - emoji + name + short-desc
+           - status badge (live ping)
+           - primary "Open" link
+           - small print: port number + endpoint -->
+    </section>
+
+    <section class="hub-docs" aria-label="Documentation">
+      <h2>Documentation &amp; help</h2>
+      <div class="hub-doc-grid">
+
+        <div class="doc-card">
+          <h3>Getting started</h3>
+          <ul>
+            <li><a href="https://github.com/growlf/ai-stack#readme" target="_blank" rel="noopener">README</a> — architecture, quick-start, ports</li>
+            <li><a href="https://github.com/growlf/ai-stack/blob/main/docs/troubleshooting.md" target="_blank" rel="noopener">Troubleshooting</a> — common issues + recovery</li>
+            <li><a href="https://github.com/growlf/ai-stack/blob/main/docs/retriever-guide.md" target="_blank" rel="noopener">Retriever &amp; RAG</a> — vault indexing + search</li>
+          </ul>
+        </div>
+
+        <div class="doc-card">
+          <h3>Hardware guides</h3>
+          <ul>
+            <li><a href="https://github.com/growlf/ai-stack/blob/main/docs/hardware/intel-igpu-vulkan.md" target="_blank" rel="noopener">Intel iGPU via Vulkan</a> — older Iris / UHD / Gen 9 hardware</li>
+            <li><a href="https://github.com/growlf/ai-stack/tree/main/docs/hardware" target="_blank" rel="noopener">All hardware docs</a> — Arc, NVIDIA, CPU</li>
+            <li><a href="https://github.com/growlf/intel_nuc_skullcanyon_ollama_with_gpu" target="_blank" rel="noopener">Intel NUC Skull Canyon standalone</a> — agent-orchestrated setup for the NUC6i7KYB class</li>
+          </ul>
+        </div>
+
+        <div class="doc-card">
+          <h3>Project</h3>
+          <ul>
+            <li><a href="https://github.com/growlf/ai-stack" target="_blank" rel="noopener">ai-stack on GitHub</a> — source, issues, PRs</li>
+            <li><a href="https://github.com/growlf/ai-stack/issues" target="_blank" rel="noopener">Open issues</a></li>
+            <li><a href="https://github.com/growlf/ai-stack/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener">Contributing</a></li>
+          </ul>
+        </div>
+
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <span>ai-stack hub · served by Shepherd-control</span>
+    <span class="federation">Herd dashboard: <a href="/herd" class="footer-link">/herd</a></span>
+  </footer>
+
+  <script src="/ui/hub.js"></script>
+</body>
+</html>
