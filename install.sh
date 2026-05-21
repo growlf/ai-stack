@@ -127,6 +127,30 @@ if [[ -z "$GPU_TYPE" ]]; then
         if command -v lspci &>/dev/null && lspci 2>/dev/null | grep -iq "Intel.*Arc"; then
             GPU_TYPE="arc"
             info "Intel Arc GPU detected — using docker-compose.arc.yml overlay."
+        elif command -v lspci &>/dev/null && lspci 2>/dev/null | grep -E -i "vga|3d|display" | grep -iq "intel"; then
+            # Older Intel iGPU detected (Iris Pro / Iris / UHD / Gen 9 etc.).
+            # ipex-llm/SYCL doesn't support these, but the Vulkan-via-Mesa-ANV path does.
+            # Validated 2026-05-19 on NUC6i7KYB (Iris Pro 580) + lab1/2/3 NUCs.
+            warn "Older Intel iGPU detected (not Arc-class)."
+            warn "The docker-compose.arc.yml path (ipex-llm/SYCL) does NOT support this hardware."
+            warn ""
+            warn "Recommended path: native Vulkan Ollama via Mesa ANV."
+            warn "  1. Diagnose:  scripts/check-iris-gpu.sh"
+            warn "  2. Install:   scripts/install-vulkan-ollama.sh    # native Ollama + systemd Vulkan drop-in"
+            warn "  3. Re-run:    ./install.sh --cpu                  # for the rest of ai-stack"
+            warn "                                                    # (Olla/LiteLLM/Smart Router auto-discover native Ollama on :11434)"
+            warn ""
+            warn "Full procedure + troubleshooting: docs/hardware/intel-igpu-vulkan.md"
+            warn "Standalone canonical setup: https://github.com/growlf/intel_nuc_skullcanyon_ollama_with_gpu"
+            warn ""
+            read -rp "Continue with CPU-only Docker stack instead (no GPU acceleration)? [y/N] " continue_cpu
+            if [[ "${continue_cpu,,}" =~ ^y ]]; then
+                GPU_TYPE="cpu"
+                info "Proceeding with CPU-only mode."
+            else
+                info "Exiting. Run scripts/install-vulkan-ollama.sh first for native GPU support, then re-run ./install.sh --cpu."
+                exit 0
+            fi
         fi
     fi
     if [[ -z "$GPU_TYPE" ]]; then
