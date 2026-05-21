@@ -357,5 +357,17 @@ if _UI_DIR.exists():
 
 
 @app.get("/", response_class=HTMLResponse)
-async def index():
+async def hub():
+    # Hub landing page — quick-link cards for every service on the host
+    # plus docs/hardware guides. Replaces the bare kiosk-as-landing-page
+    # so humans get a navigable entry-point instead of needing to memorize
+    # ports. The kiosk herd view moves to /herd (see below).
+    return FileResponse(_UI_DIR / "hub.html")
+
+
+@app.get("/herd", response_class=HTMLResponse)
+async def herd():
+    # Existing kiosk herd-observatory view (live per-node CPU/RAM/GPU,
+    # resident models, federation peers). Moved from / to /herd as part
+    # of the hub-page introduction.
     return FileResponse(_UI_DIR / "index.html")
