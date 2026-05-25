@@ -37,12 +37,13 @@ LISTEN_PORT = int(os.environ.get("LISTEN_PORT", "40115"))
 CAPABILITY_REFRESH_INTERVAL = int(os.environ.get("CAPABILITY_REFRESH_INTERVAL", "300"))
 
 MODELS = {
-    "scripting": "qwen2.5-coder:14b",
-    "reasoning": "deepseek-r1:14b",
-    "longform": "gemma3:12b",
-    "heavy": "gemma3:12b",
-    "tools": "llama3.1:8b",
-    "default": "qwen2.5:7b",
+    "scripting": os.environ.get("ROUTER_SCRIPTING_MODEL", "qwen2.5-coder:14b"),
+    "reasoning": os.environ.get("ROUTER_REASONING_MODEL", "deepseek-r1:14b"),
+    "longform": os.environ.get("ROUTER_LONGFORM_MODEL", "gemma3:12b"),
+    "heavy": os.environ.get("ROUTER_HEAVY_MODEL", "gemma3:12b"),
+    # mistral-small3.2:24b: strong tool-calling, fits 3090 Ti with headroom for KV cache
+    "tools": os.environ.get("ROUTER_TOOLS_MODEL", "mistral-small3.2:24b"),
+    "default": os.environ.get("ROUTER_DEFAULT_MODEL", "qwen2.5:7b"),
 }
 
 # Model families known to support / not support tool calling.
