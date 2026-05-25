@@ -164,7 +164,10 @@ class CapabilityRegistry:
         return model_name in self._registry
 
     def best_tools_model(self) -> str | None:
-        """Return the first available model that supports tool calling."""
+        """Return the configured tools model if available, else first capable model."""
+        preferred = MODELS.get("tools")
+        if preferred and preferred in self._registry and self._registry[preferred].tools:
+            return preferred
         for name, cap in self._registry.items():
             if cap.tools and cap.available:
                 return name
