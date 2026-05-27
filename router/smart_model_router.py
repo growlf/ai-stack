@@ -22,6 +22,7 @@ Observable gestalt:
 import asyncio
 import json
 import os
+import re
 import time
 from collections import deque
 from contextlib import asynccontextmanager
@@ -164,7 +165,25 @@ class CapabilityRegistry:
         return model_name in self._registry
 
     def best_tools_model(self) -> str | None:
-        """Return the first available model that supports tool calling."""
+        """Return the best available model that supports tool calling.
+        Prefers known-good tool-using models (≥7B) over arbitrary registry order
+        so the fallback path picks a model large enough to actually use tools.
+        """
+        # Preferred order — proven tool-using models at usable sizes
+        preferred = [
+            "llama3.1:8b",
+            "llama3.1:latest",
+            "mistral-small3.2:24b",
+            "qwen2.5-coder:14b",
+            "qwen2.5:14b",
+            "qwen2.5:7b",
+            "mistral:7b",
+        ]
+        for name in preferred:
+            cap = self._registry.get(name)
+            if cap and cap.tools and cap.available:
+                return name
+        # Fall back to any tool-capable model in the registry
         for name, cap in self._registry.items():
             if cap.tools and cap.available:
                 return name
