@@ -353,14 +353,21 @@ async def _push_event(event: dict) -> None:
             pass
 
 
-async def handle_request(data: dict, profile: str | None = None) -> dict:
+async def handle_request(
+    data: dict,
+    profile: str | None = None,
+    skip_shortcut: bool = False,
+) -> dict:
     """Route a chat completion request.
 
     Args:
-        data:    Parsed request body (modified in place).
-        profile: Override the active profile for this request.
-                 If None, ROUTER_PROFILE env var is used.
-                 Set via the X-Router-Profile request header.
+        data:          Parsed request body (modified in place).
+        profile:       Override the active profile for this request.
+                       If None, ROUTER_PROFILE env var is used.
+                       Set via the X-Router-Profile request header.
+        skip_shortcut: If True, bypass the Tier-0 data-query shortcut and
+                       allow normal classification + profile routing.
+                       Set via the X-Skip-Shortcut: true request header.
     """
     global _request_count
 
@@ -387,7 +394,8 @@ async def handle_request(data: dict, profile: str | None = None) -> dict:
     # ── Tier-0 shortcut: data-retrieval queries ───────────────────────────────
     # Short status/list queries never benefit from cloud. Skip classification
     # and force the fast local default model regardless of active profile.
-    if _is_data_query(user_message):
+    # Bypass with X-Skip-Shortcut: true header when the shortcut would misfire.
+    if not skip_shortcut and _is_data_query(user_message):
         model = MODELS["default"]
         if not registry.is_available(model):
             model = registry.best_available() or model
@@ -916,13 +924,18 @@ async def proxy(request: Request, path: str):
         body = raw_body
         is_cloud = False
 
-        # Per-request profile override via X-Router-Profile header
+        # Per-request overrides via headers:
+        #   X-Router-Profile: hybrid|full-cloud|full-local  — switch profile
+        #   X-Skip-Shortcut: true                           — bypass Tier-0 shortcut
         request_profile = request.headers.get("X-Router-Profile") or None
+        skip_shortcut = request.headers.get("X-Skip-Shortcut", "").lower() == "true"
 
         if raw_body:
             data = _parse_body(raw_body)
             if data and should_route(data, path):
-                routed = await handle_request(data, profile=request_profile)
+                routed = await handle_request(
+                    data, profile=request_profile, skip_shortcut=skip_shortcut
+                )
                 # Extract and remove the cloud-route marker before forwarding
                 is_cloud = routed.pop(_CLOUD_ROUTE, False)
                 body = json.dumps(routed).encode()
