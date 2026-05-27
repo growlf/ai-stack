@@ -822,10 +822,13 @@ async def _proxy_to_anthropic(
             content=body,
         )
         print(f"[SmartRouter] Anthropic responded HTTP {response.status_code}")
+        resp_headers = dict(response.headers)
+        resp_headers.pop("content-encoding", None)
+        resp_headers.pop("transfer-encoding", None)
         return Response(
             content=response.content,
             status_code=response.status_code,
-            headers=dict(response.headers),
+            headers=resp_headers,
         )
     except Exception as e:
         print(f"[SmartRouter] Anthropic request failed: {e}")
@@ -867,6 +870,11 @@ async def proxy(request: Request, path: str):
             headers = dict(request.headers)
             headers.pop("host", None)
             headers.pop("content-length", None)
+            # Strip Accept-Encoding — we proxy raw bytes via response.content;
+            # httpx auto-decompresses if upstream compresses, which means the
+            # Content-Encoding header in the response no longer matches the body.
+            # Easiest fix: don't ask upstream for compression.
+            headers.pop("accept-encoding", None)
 
             response = await client.request(
                 method=request.method,
@@ -876,10 +884,16 @@ async def proxy(request: Request, path: str):
                 params=dict(request.query_params),
             )
 
+            resp_headers = dict(response.headers)
+            # Drop hop-by-hop / encoding headers that no longer apply after
+            # httpx decompressed the body (belt-and-suspenders for any upstream
+            # that ignores our Accept-Encoding omission and compresses anyway).
+            resp_headers.pop("content-encoding", None)
+            resp_headers.pop("transfer-encoding", None)
             return Response(
                 content=response.content,
                 status_code=response.status_code,
-                headers=dict(response.headers),
+                headers=resp_headers,
             )
 
     return Response(status_code=404)
