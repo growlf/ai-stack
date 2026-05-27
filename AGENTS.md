@@ -2,16 +2,41 @@
 
 This is a Docker Compose-based AI stack managed via systemd. The stack provides local LLM inference (ollama), cloud API routing (LiteLLM), unified routing/load balancing (Olla), and Obsidian vault RAG (retriever). The primary AI interface is **OpenCode** (CLI + Obsidian sidebar plugin).
 
+## ⚠️ Critical: Always Use start.sh, Never Raw docker compose
+
+**NEVER run `docker compose up` directly** — it bypasses GPU overlay selection, VaultWarden
+placeholder resolution, and Olla config generation. The `ollama` container will start without
+GPU access (CPU-only mode) if the NVIDIA/Arc overlay is not applied.
+
+```
+# ✅ Correct — always use one of these:
+sudo systemctl restart ai-stack.service        # full stack via systemd
+bash ./start.sh -d                             # full stack detached
+bash ./start.sh -d --no-deps <service>         # single service rebuild
+
+# ❌ Never — bypasses GPU overlay and placeholders:
+docker compose up -d                           # WRONG
+docker compose up -d --no-deps ollama          # WRONG — ollama loses GPU
+docker compose build router && docker compose up -d router  # WRONG
+```
+
+Root cause: `start.sh` auto-detects GPU type (NVIDIA/Arc/CPU) and passes
+`-f docker-compose.yml -f docker-compose.nvidia.yml` (or `.arc.yml`) to compose.
+Raw `docker compose` only loads `docker-compose.yml` (CPU-only for ollama).
+
+**GPU config on cluster-llm:** RTX 3090 Ti (24 GB VRAM). `GPU_TYPE=nvidia` is pinned
+in `.env` so detection never fails, but the overlay must still be passed via `start.sh`.
+
 ## Developer commands
 
 ```bash
 # Start / stop / restart (via systemd, preferred)
 sudo systemctl start|stop|restart ai-stack.service
 
-# Direct docker compose (for testing, not persistent)
-# NOTE: start.sh auto-resolves <vaultwarden:...> placeholders first
+# Direct compose — MUST go through start.sh (see warning above)
 ./start.sh            # foreground
 ./start.sh -d         # detached
+./start.sh -d --no-deps router   # rebuild single service
 ./start.sh down       # tear down
 
 # Regenerate Olla config after changing .env OLLAMA_REMOTE_* entries
