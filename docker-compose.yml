@@ -167,6 +167,9 @@ services:
       - OLLA_URL=http://olla:40114
       - LISTEN_HOST=0.0.0.0
       - LISTEN_PORT=40115
+      - ROUTER_PROFILE=${ROUTER_PROFILE:-hybrid}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - OPENCODE_API_KEY=${OPENCODE_API_KEY}
     depends_on:
       olla:
         condition: service_healthy
