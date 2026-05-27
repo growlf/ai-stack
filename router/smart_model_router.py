@@ -169,14 +169,16 @@ class CapabilityRegistry:
         Prefers known-good tool-using models (≥7B) over arbitrary registry order
         so the fallback path picks a model large enough to actually use tools.
         """
-        # Preferred order — proven tool-using models at usable sizes
+        # Preferred order — proven tool-using models at usable sizes.
+        # mistral-small3.2:24b is the only verified local tool model; it comes first.
+        # llama3.1:8b is T3 (limited tool support, small context) — use only as last resort.
         preferred = [
+            "mistral-small3.2:24b",
+            "qwen2.5:14b",
+            "qwen2.5-coder:14b",
+            "qwen2.5:7b",
             "llama3.1:8b",
             "llama3.1:latest",
-            "mistral-small3.2:24b",
-            "qwen2.5-coder:14b",
-            "qwen2.5:14b",
-            "qwen2.5:7b",
             "mistral:7b",
         ]
         for name in preferred:
