@@ -37,6 +37,56 @@ LISTEN_HOST = os.environ.get("LISTEN_HOST", "0.0.0.0")
 LISTEN_PORT = int(os.environ.get("LISTEN_PORT", "40115"))
 CAPABILITY_REFRESH_INTERVAL = int(os.environ.get("CAPABILITY_REFRESH_INTERVAL", "300"))
 
+# ── Profile-based routing ─────────────────────────────────────────────────────
+# Set ROUTER_PROFILE in .env to switch between profiles.
+# Each profile maps query categories to (model, cloud) pairs.
+# cloud=True  → Anthropic API (ANTHROPIC_API_KEY required)
+# cloud=False → Olla herd (all registered nodes, load-balanced)
+#
+# Profiles:
+#   full-cloud   — all Anthropic; best quality, uses cloud quota
+#   hybrid       — cloud for reasoning/planning, local herd for tasks/chat
+#   full-local   — all Olla herd; no cloud calls
+#
+# The fourth profile (phoenix-offline) is handled by pointing OpenCode at
+# localhost:11434 directly — no router involved.
+
+ROUTER_PROFILE = os.environ.get("ROUTER_PROFILE", "hybrid")
+
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+ANTHROPIC_BASE_URL = os.environ.get("ANTHROPIC_BASE_URL", "https://api.anthropic.com/v1")
+
+# Marker key stripped from body before forwarding to backend
+_CLOUD_ROUTE = "__cloud__"
+
+PROFILES: dict[str, dict[str, dict]] = {
+    "full-cloud": {
+        "scripting": {"model": "claude-haiku-4-5",  "cloud": True},
+        "reasoning": {"model": "claude-sonnet-4-6", "cloud": True},
+        "longform":  {"model": "claude-haiku-4-5",  "cloud": True},
+        "heavy":     {"model": "claude-sonnet-4-6", "cloud": True},
+        "tools":     {"model": "claude-haiku-4-5",  "cloud": True},
+        "default":   {"model": "claude-haiku-4-5",  "cloud": True},
+    },
+    "hybrid": {
+        "scripting": {"model": "mistral-small3.2:24b", "cloud": False},
+        "reasoning": {"model": "claude-haiku-4-5",     "cloud": True},
+        "longform":  {"model": "claude-haiku-4-5",     "cloud": True},
+        "heavy":     {"model": "claude-haiku-4-5",     "cloud": True},
+        "tools":     {"model": "mistral-small3.2:24b", "cloud": False},
+        "default":   {"model": "qwen2.5:7b",           "cloud": False},
+    },
+    "full-local": {
+        "scripting": {"model": "mistral-small3.2:24b", "cloud": False},
+        "reasoning": {"model": "deepseek-r1:14b",      "cloud": False},
+        "longform":  {"model": "qwen2.5:14b",          "cloud": False},
+        "heavy":     {"model": "qwen2.5:14b",          "cloud": False},
+        "tools":     {"model": "mistral-small3.2:24b", "cloud": False},
+        "default":   {"model": "qwen2.5:7b",           "cloud": False},
+    },
+}
+
+# Legacy per-model env var overrides (used when ROUTER_PROFILE is not set or unknown)
 MODELS = {
     "scripting": os.environ.get("ROUTER_SCRIPTING_MODEL", "qwen2.5-coder:14b"),
     "reasoning": os.environ.get("ROUTER_REASONING_MODEL", "deepseek-r1:14b"),
@@ -301,8 +351,52 @@ async def handle_request(data: dict) -> dict:
 
     needs_tools = bool(data.get("tools") or data.get("functions"))
 
-    # Always classify first — don't short-circuit on tool presence alone
-    model, reason = await classify(user_message)
+    # classify() returns (model_name, category_str)
+    # model_name = MODELS[category], category_str = "scripting"|"reasoning"|"longform"|"default"
+    model, category = await classify(user_message)
+
+    # ── Profile-aware routing ─────────────────────────────────────────────────
+    profile = PROFILES.get(ROUTER_PROFILE)
+    if profile:
+        route = profile.get(category, profile["default"])
+        model = route["model"]
+        is_cloud = route["cloud"]
+
+        # Cloud models (Claude etc.) handle tools natively — no local fallback needed
+        if is_cloud:
+            if not ANTHROPIC_API_KEY:
+                print(f"[SmartRouter] Profile={ROUTER_PROFILE}: cloud route requested but "
+                      f"ANTHROPIC_API_KEY not set — falling back to local default")
+                model = MODELS["default"]
+                is_cloud = False
+            else:
+                data["model"] = model
+                data[_CLOUD_ROUTE] = True
+                print(f"[SmartRouter] [{ROUTER_PROFILE}] '{user_message[:60]}' "
+                      f"-> ☁ {model} ({category})")
+                _record_route(user_message, model, f"cloud/{category}")
+                return data
+
+        # Local route: apply tool-capability checks against Olla registry
+        if needs_tools and not registry.supports_tools(model):
+            fallback = registry.best_tools_model() or MODELS["tools"]
+            print(f"[SmartRouter] [{ROUTER_PROFILE}] {model} no tools → {fallback}")
+            model = fallback
+            category = f"tools-fallback ({category})"
+
+        if not registry.is_available(model):
+            fallback = registry.best_available(exclude=model) or MODELS["default"]
+            print(f"[SmartRouter] [{ROUTER_PROFILE}] {model} unavailable → {fallback}")
+            model = fallback
+            category = f"fallback ({category})"
+
+        data["model"] = model
+        print(f"[SmartRouter] [{ROUTER_PROFILE}] '{user_message[:60]}' -> ⬡ {model} ({category})")
+        _record_route(user_message, model, category)
+        return data
+
+    # ── Legacy routing (no profile or unknown profile) ────────────────────────
+    reason = category  # category_str used as reason label in legacy mode
 
     # Only force the tools model when tools are needed for the task
     if needs_tools and reason == "scripting":
@@ -332,17 +426,22 @@ async def handle_request(data: dict) -> dict:
     data["model"] = model
     print(f"[SmartRouter] '{user_message[:80]}' -> {model} ({reason})")
 
+    _record_route(user_message, model, reason)
+    return data
+
+
+def _record_route(query: str, model: str, reason: str) -> None:
+    """Record a routing decision to the log and SSE event stream."""
+    global _request_count
     _request_count += 1
     entry = {
         "ts": time.time(),
-        "query": user_message[:80],
+        "query": query[:80],
         "model": model,
         "reason": reason,
     }
     _routing_log.appendleft(entry)
     asyncio.create_task(_push_event({"type": "route", **entry}))
-
-    return data
 
 
 # ── Gestalt cluster status ────────────────────────────────────────────────────
@@ -693,22 +792,64 @@ async def gestalt_ui():
     return _DASHBOARD_HTML
 
 
+async def _proxy_to_anthropic(
+    client: httpx.AsyncClient,
+    path: str,
+    body: bytes,
+) -> Response:
+    """Forward a chat completion request to Anthropic's OpenAI-compatible API."""
+    url = f"{ANTHROPIC_BASE_URL}/{path}"
+    headers = {
+        "Authorization": f"Bearer {ANTHROPIC_API_KEY}",
+        "Content-Type": "application/json",
+        "anthropic-version": "2023-06-01",
+    }
+    try:
+        response = await client.request(
+            method="POST",
+            url=url,
+            headers=headers,
+            content=body,
+        )
+        print(f"[SmartRouter] Anthropic responded HTTP {response.status_code}")
+        return Response(
+            content=response.content,
+            status_code=response.status_code,
+            headers=dict(response.headers),
+        )
+    except Exception as e:
+        print(f"[SmartRouter] Anthropic request failed: {e}")
+        return Response(
+            content=json.dumps({"error": f"Anthropic request failed: {e}"}).encode(),
+            status_code=503,
+            headers={"Content-Type": "application/json"},
+        )
+
+
 @app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
 async def proxy(request: Request, path: str):
     if path.startswith("v1/"):
         raw_body = await request.body()
-        body = raw_body  # sent downstream unless routing modifies it
+        body = raw_body
+        is_cloud = False
 
-        # Parse once — reuse the parsed dict for both the routing check and mutation
         if raw_body:
             data = _parse_body(raw_body)
             if data and should_route(data, path):
                 routed = await handle_request(data)
+                # Extract and remove the cloud-route marker before forwarding
+                is_cloud = routed.pop(_CLOUD_ROUTE, False)
                 body = json.dumps(routed).encode()
 
         async with httpx.AsyncClient(
             timeout=httpx.Timeout(connect=10.0, read=300.0, write=10.0, pool=10.0)
         ) as client:
+
+            # Cloud route: forward to Anthropic
+            if is_cloud and ANTHROPIC_API_KEY:
+                return await _proxy_to_anthropic(client, path, body)
+
+            # Local route: forward to Olla herd
             url = f"{OLLA_URL}/olla/ollama/{path}"
             headers = dict(request.headers)
             headers.pop("host", None)
@@ -736,6 +877,9 @@ def main():
 
     print(f"[SmartRouter] Listening on {LISTEN_HOST}:{LISTEN_PORT}")
     print(f"[SmartRouter] Forwarding to Olla at {OLLA_URL}")
+    print(f"[SmartRouter] Profile: {ROUTER_PROFILE} "
+          f"({'known' if ROUTER_PROFILE in PROFILES else 'UNKNOWN — using legacy routing'})")
+    print(f"[SmartRouter] Cloud routing: {'enabled (Anthropic)' if ANTHROPIC_API_KEY else 'disabled (no ANTHROPIC_API_KEY)'}")
     print(f"[SmartRouter] Capability refresh interval: {CAPABILITY_REFRESH_INTERVAL}s")
     print(f"[SmartRouter] Dashboard: http://{LISTEN_HOST}:{LISTEN_PORT}/gestalt/ui")
     uvicorn.run(app, host=LISTEN_HOST, port=LISTEN_PORT)
