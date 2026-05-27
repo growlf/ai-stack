@@ -15,7 +15,8 @@
 
 services:
   ollama:
-    image: ghcr.io/ava-agentone/ollama-intel:latest
+    image: intelanalytics/ipex-llm-inference-cpp-xpu:latest
+    entrypoint: ["/usr/local/lib/python3.11/dist-packages/bigdl/cpp/libs/ollama/ollama", "serve"]
     container_name: ollama
     environment:
       - DEVICE=Arc

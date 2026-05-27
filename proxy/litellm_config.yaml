@@ -46,6 +46,15 @@ model_list:
     model_info:
       supports_function_calling: true
 
+  # ── OpenCode Zen ────────────────────────────────────────────────────────
+  - model_name: big-pickle
+    litellm_params:
+      model: openai/big-pickle
+      api_base: https://opencode.ai/zen/v1
+      api_key: os.environ/OPENCODE_ZEN_API_KEY
+    model_info:
+      supports_function_calling: true
+
   # ── OpenAI (optional) ───────────────────────────────────────────────────
   # - model_name: gpt-4o
   #   litellm_params:
@@ -56,55 +65,6 @@ model_list:
 
   # ── Local cluster via Olla (load-balanced across all nodes) ─────────────
   # Olla speaks OpenAI-compatible API — use openai/ prefix, not ollama/.
-  - model_name: qwen2.5-coder:14b
-    litellm_params:
-      model: openai/qwen2.5-coder:14b
-      api_base: http://olla:40114
-      api_key: "none"
-    model_info:
-      supports_function_calling: true
-
-  - model_name: qwen2.5:14b
-    litellm_params:
-      model: openai/qwen2.5:14b
-      api_base: http://olla:40114
-      api_key: "none"
-    model_info:
-      supports_function_calling: true
-
-  - model_name: qwen3.5:27b
-    litellm_params:
-      model: openai/qwen3.5:27b
-      api_base: http://olla:40114
-      api_key: "none"
-    model_info:
-      supports_function_calling: true
-
-  - model_name: deepseek-r1:14b
-    litellm_params:
-      model: openai/deepseek-r1:14b
-      api_base: http://olla:40114
-      api_key: "none"
-    model_info:
-      supports_function_calling: false
-
-  - model_name: gemma3:12b
-    litellm_params:
-      model: openai/gemma3:12b
-      api_base: http://olla:40114
-      api_key: "none"
-    model_info:
-      supports_function_calling: false
-
-  - model_name: nomic-embed-text
-    litellm_params:
-      model: openai/nomic-embed-text
-      api_base: http://olla:40114
-      api_key: "none"
-    model_info:
-      supports_function_calling: false
-      mode: embedding
-
 litellm_settings:
   drop_params: true
   modify_params: true        # fixes Anthropic tool-history errors

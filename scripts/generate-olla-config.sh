@@ -153,6 +153,8 @@ cat >> "$OUTPUT" <<EOF
         name: "litellm-cloud"
         type: "litellm"
         priority: 50
+        model_url: "/v1/models"
+        health_check_url: "/health/liveness"
         check_interval: 30s
         check_timeout: 10s
 
