@@ -169,16 +169,18 @@ class CapabilityRegistry:
         Prefers known-good tool-using models (≥7B) over arbitrary registry order
         so the fallback path picks a model large enough to actually use tools.
         """
-        # Preferred order — proven tool-using models at usable sizes.
-        # mistral-small3.2:24b is the only verified local tool model; it comes first.
-        # llama3.1:8b is T3 (limited tool support, small context) — use only as last resort.
+        # Preferred order — tool-capable models ordered by RAM footprint (smallest first).
+        # The Ollama container currently runs without GPU access, so models load into
+        # system RAM. Only models that fit in ~8 GiB system RAM are usable.
+        # qwen2.5:7b (~5 GiB) and llama3.1:8b (~6 GiB) work; 14B+ models do not.
+        # mistral-small3.2:24b requires ~15.5 GiB — too large for CPU-only mode.
         preferred = [
-            "mistral-small3.2:24b",
-            "qwen2.5:14b",
-            "qwen2.5-coder:14b",
-            "qwen2.5:7b",
-            "llama3.1:8b",
+            "qwen2.5:7b",         # ~5 GiB RAM, reliable tools
+            "llama3.1:8b",        # ~6 GiB RAM, reliable tools
             "llama3.1:latest",
+            "qwen2.5-coder:14b",  # ~9 GiB — may fail on low-RAM nodes
+            "qwen2.5:14b",
+            "mistral-small3.2:24b",  # ~15.5 GiB — only if GPU available
             "mistral:7b",
         ]
         for name in preferred:
