@@ -54,7 +54,8 @@ CAPABILITY_REFRESH_INTERVAL = int(os.environ.get("CAPABILITY_REFRESH_INTERVAL", 
 ROUTER_PROFILE = os.environ.get("ROUTER_PROFILE", "hybrid")
 
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-ANTHROPIC_BASE_URL = os.environ.get("ANTHROPIC_BASE_URL", "https://api.anthropic.com/v1")
+# Base URL WITHOUT /v1 suffix — path already starts with "v1/..."
+ANTHROPIC_BASE_URL = os.environ.get("ANTHROPIC_BASE_URL", "https://api.anthropic.com")
 
 # Marker key stripped from body before forwarding to backend
 _CLOUD_ROUTE = "__cloud__"
