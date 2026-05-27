@@ -327,7 +327,15 @@ async def _push_event(event: dict) -> None:
             pass
 
 
-async def handle_request(data: dict) -> dict:
+async def handle_request(data: dict, profile: str | None = None) -> dict:
+    """Route a chat completion request.
+
+    Args:
+        data:    Parsed request body (modified in place).
+        profile: Override the active profile for this request.
+                 If None, ROUTER_PROFILE env var is used.
+                 Set via the X-Router-Profile request header.
+    """
     global _request_count
 
     messages = data.get("messages", [])
@@ -357,7 +365,8 @@ async def handle_request(data: dict) -> dict:
     model, category = await classify(user_message)
 
     # ── Profile-aware routing ─────────────────────────────────────────────────
-    profile = PROFILES.get(ROUTER_PROFILE)
+    active_profile_name = profile or ROUTER_PROFILE
+    profile = PROFILES.get(active_profile_name)
     if profile:
         route = profile.get(category, profile["default"])
         model = route["model"]
@@ -373,7 +382,7 @@ async def handle_request(data: dict) -> dict:
             else:
                 data["model"] = model
                 data[_CLOUD_ROUTE] = True
-                print(f"[SmartRouter] [{ROUTER_PROFILE}] '{user_message[:60]}' "
+                print(f"[SmartRouter] [{active_profile_name}] '{user_message[:60]}' "
                       f"-> ☁ {model} ({category})")
                 _record_route(user_message, model, f"cloud/{category}")
                 return data
@@ -381,18 +390,18 @@ async def handle_request(data: dict) -> dict:
         # Local route: apply tool-capability checks against Olla registry
         if needs_tools and not registry.supports_tools(model):
             fallback = registry.best_tools_model() or MODELS["tools"]
-            print(f"[SmartRouter] [{ROUTER_PROFILE}] {model} no tools → {fallback}")
+            print(f"[SmartRouter] [{active_profile_name}] {model} no tools → {fallback}")
             model = fallback
             category = f"tools-fallback ({category})"
 
         if not registry.is_available(model):
             fallback = registry.best_available(exclude=model) or MODELS["default"]
-            print(f"[SmartRouter] [{ROUTER_PROFILE}] {model} unavailable → {fallback}")
+            print(f"[SmartRouter] [{active_profile_name}] {model} unavailable → {fallback}")
             model = fallback
             category = f"fallback ({category})"
 
         data["model"] = model
-        print(f"[SmartRouter] [{ROUTER_PROFILE}] '{user_message[:60]}' -> ⬡ {model} ({category})")
+        print(f"[SmartRouter] [{active_profile_name}] '{user_message[:60]}' -> ⬡ {model} ({category})")
         _record_route(user_message, model, category)
         return data
 
@@ -834,10 +843,13 @@ async def proxy(request: Request, path: str):
         body = raw_body
         is_cloud = False
 
+        # Per-request profile override via X-Router-Profile header
+        request_profile = request.headers.get("X-Router-Profile") or None
+
         if raw_body:
             data = _parse_body(raw_body)
             if data and should_route(data, path):
-                routed = await handle_request(data)
+                routed = await handle_request(data, profile=request_profile)
                 # Extract and remove the cloud-route marker before forwarding
                 is_cloud = routed.pop(_CLOUD_ROUTE, False)
                 body = json.dumps(routed).encode()
@@ -879,7 +891,8 @@ def main():
     print(f"[SmartRouter] Listening on {LISTEN_HOST}:{LISTEN_PORT}")
     print(f"[SmartRouter] Forwarding to Olla at {OLLA_URL}")
     print(f"[SmartRouter] Profile: {ROUTER_PROFILE} "
-          f"({'known' if ROUTER_PROFILE in PROFILES else 'UNKNOWN — using legacy routing'})")
+          f"({'known' if ROUTER_PROFILE in PROFILES else 'UNKNOWN — using legacy routing'})"
+          f" | per-request override via X-Router-Profile header")
     print(f"[SmartRouter] Cloud routing: {'enabled (Anthropic)' if ANTHROPIC_API_KEY else 'disabled (no ANTHROPIC_API_KEY)'}")
     print(f"[SmartRouter] Capability refresh interval: {CAPABILITY_REFRESH_INTERVAL}s")
     print(f"[SmartRouter] Dashboard: http://{LISTEN_HOST}:{LISTEN_PORT}/gestalt/ui")
