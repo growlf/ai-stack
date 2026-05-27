@@ -129,6 +129,32 @@ _TOOL_INCAPABLE_FAMILIES = {
     "all-minilm",
 }
 
+# ── Shortcut: data-retrieval queries ─────────────────────────────────────────
+# Queries matching these patterns are answered by a local model + tools.
+# They never justify a cloud call regardless of the active profile.
+# Pattern logic: short queries (<200 chars) that are clearly asking FOR project
+# state — not asking to DO something.
+_SHORTCUT_PATTERN = re.compile(
+    r"(?i)\b("
+    r"status\b"
+    r"|list\s+(proposals?|plans?|issues?|tasks?)"
+    r"|show\s+(proposals?|plans?|issues?|tasks?)"
+    r"|what.{0,30}(proposals?|plans?|issues?|pending|in[\s-]progress)"
+    r"|proposals?.{0,20}(status|list|pending|approved|open)"
+    r"|plans?.{0,20}(status|list|active|progress|open)"
+    r"|open\s+issues?"
+    r"|current\s+(proposals?|plans?|tasks?|work)"
+    r"|what.{0,15}open\b"
+    r"|what.{0,15}pending\b"
+    r")"
+)
+
+
+def _is_data_query(text: str) -> bool:
+    """True for short data-retrieval queries that should never route to cloud."""
+    return len(text) < 200 and bool(_SHORTCUT_PATTERN.search(text))
+
+
 _CLASSIFY_MODEL = os.environ.get("CLASSIFY_MODEL", "qwen2.5:1.5b")
 
 _CLASSIFY_SYSTEM_PROMPT = (
@@ -356,6 +382,18 @@ async def handle_request(data: dict, profile: str | None = None) -> dict:
             break
 
     if not user_message:
+        return data
+
+    # ── Tier-0 shortcut: data-retrieval queries ───────────────────────────────
+    # Short status/list queries never benefit from cloud. Skip classification
+    # and force the fast local default model regardless of active profile.
+    if _is_data_query(user_message):
+        model = MODELS["default"]
+        if not registry.is_available(model):
+            model = registry.best_available() or model
+        data["model"] = model
+        print(f"[SmartRouter] [shortcut] '{user_message[:60]}' -> ⬡ {model} (data-query, no cloud)")
+        _record_route(user_message, model, "shortcut-data")
         return data
 
     needs_tools = bool(data.get("tools") or data.get("functions"))
@@ -807,12 +845,44 @@ async def _proxy_to_anthropic(
     path: str,
     body: bytes,
 ) -> Response:
-    """Forward a chat completion request to Anthropic's OpenAI-compatible API."""
+    """Forward a chat completion request to Anthropic's OpenAI-compatible API.
+
+    Injects prompt caching on the system message so repeated requests with the
+    same large system prompt pay ~10% of normal input token cost after the first
+    call.  Cache TTL is 5 minutes.  If injection fails for any reason the
+    original body is forwarded uncached — no silent breakage.
+    """
+    # ── Inject prompt caching on system message ───────────────────────────────
+    try:
+        req_data = json.loads(body)
+        messages = req_data.get("messages", [])
+        if messages and messages[0].get("role") == "system":
+            sys_content = messages[0].get("content", "")
+            if isinstance(sys_content, str) and sys_content:
+                # Convert string content → content-block array with cache_control.
+                # Anthropic's OpenAI-compat endpoint honours this field.
+                messages[0] = {
+                    "role": "system",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": sys_content,
+                            "cache_control": {"type": "ephemeral"},
+                        }
+                    ],
+                }
+                req_data["messages"] = messages
+                body = json.dumps(req_data).encode()
+                print("[SmartRouter] Prompt cache injected on system message")
+    except Exception as cache_err:
+        print(f"[SmartRouter] Prompt cache inject skipped ({cache_err}) — sending uncached")
+
     url = f"{ANTHROPIC_BASE_URL}/{path}"
     headers = {
         "Authorization": f"Bearer {ANTHROPIC_API_KEY}",
         "Content-Type": "application/json",
         "anthropic-version": "2023-06-01",
+        "anthropic-beta": "prompt-caching-2024-07-31",
     }
     try:
         response = await client.request(
