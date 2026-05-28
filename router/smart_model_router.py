@@ -62,27 +62,27 @@ _CLOUD_ROUTE = "__cloud__"
 
 PROFILES: dict[str, dict[str, dict]] = {
     "full-cloud": {
+        "tools":     {"model": "claude-haiku-4-5",  "cloud": True},
         "scripting": {"model": "claude-haiku-4-5",  "cloud": True},
         "reasoning": {"model": "claude-sonnet-4-6", "cloud": True},
         "longform":  {"model": "claude-haiku-4-5",  "cloud": True},
         "heavy":     {"model": "claude-sonnet-4-6", "cloud": True},
-        "tools":     {"model": "claude-haiku-4-5",  "cloud": True},
         "default":   {"model": "claude-haiku-4-5",  "cloud": True},
     },
     "hybrid": {
+        "tools":     {"model": "mistral-small3.2:24b", "cloud": False},
         "scripting": {"model": "mistral-small3.2:24b", "cloud": False},
         "reasoning": {"model": "claude-haiku-4-5",     "cloud": True},
         "longform":  {"model": "claude-haiku-4-5",     "cloud": True},
         "heavy":     {"model": "claude-haiku-4-5",     "cloud": True},
-        "tools":     {"model": "mistral-small3.2:24b", "cloud": False},
         "default":   {"model": "qwen2.5:7b",           "cloud": False},
     },
     "full-local": {
+        "tools":     {"model": "mistral-small3.2:24b", "cloud": False},
         "scripting": {"model": "mistral-small3.2:24b", "cloud": False},
         "reasoning": {"model": "deepseek-r1:14b",      "cloud": False},
         "longform":  {"model": "qwen2.5:14b",          "cloud": False},
         "heavy":     {"model": "qwen2.5:14b",          "cloud": False},
-        "tools":     {"model": "mistral-small3.2:24b", "cloud": False},
         "default":   {"model": "qwen2.5:7b",           "cloud": False},
     },
 }
@@ -183,11 +183,17 @@ _CLASSIFY_MODEL = os.environ.get("CLASSIFY_MODEL", "qwen2.5:1.5b")
 
 _CLASSIFY_SYSTEM_PROMPT = (
     "Categorize this user message into EXACTLY ONE category:\n"
-    "- scripting: code, bash, yaml, config, debugging, automation — asking to write or run code\n"
-    "- reasoning: analysis, explanation, comparison, architecture, math — complex analytical tasks\n"
-    "- longform: summarization, document writing, editing, reports — extended writing tasks\n"
-    "- default: general conversation, questions about files/directories, asking about the system, or anything else\n"
-    "IMPORTANT: Questions about files, directories, paths, or the local environment are ALWAYS 'default'.\n"
+    "- tools: needs a data lookup to answer — device IPs, hostnames, credentials, project status, "
+    "proposals, plans, inventory, 'what are we working on', 'what is the status of', "
+    "'what is the IP of', 'outstanding proposals', 'active plans', 'what VLAN', "
+    "'what credential', 'look up', 'find the IP'\n"
+    "- scripting: asking to write or run code, bash, yaml, config, playbooks, scripts, automation\n"
+    "- reasoning: analysis, explanation, comparison, architecture, trade-offs, math — "
+    "complex thinking tasks that do not need a data lookup\n"
+    "- longform: summarization, document writing, editing, reports, proposals from scratch\n"
+    "- default: general conversation, greetings, or anything else\n"
+    "IMPORTANT: Any question about a specific device, IP, VLAN, credential, project status, "
+    "proposal, or plan is ALWAYS 'tools' — even if phrased as a simple question.\n"
     "Simple greetings like 'hi' are ALWAYS 'default'.\n"
     "Reply with ONLY the category name."
 )
@@ -339,6 +345,9 @@ async def classify(text: str) -> tuple[str, str]:
             )
             resp.raise_for_status()
             category = resp.json()["choices"][0]["message"]["content"].strip().lower()
+            # 'tools' is a new category — maps to the tools model explicitly
+            if category == "tools":
+                return MODELS["tools"], category
             if category in MODELS:
                 return MODELS[category], category
     except Exception as exc:
@@ -413,32 +422,6 @@ async def handle_request(
             break
 
     if not user_message:
-        return data
-
-    # ── Tier-0 shortcut: data-retrieval queries ───────────────────────────────
-    # Status/list/proposal queries need MCP tool calls to answer correctly.
-    # Route to the tools model (mistral-small3.2:24b) — not the default model
-    # (qwen2.5:7b) which cannot reliably call tools. Still avoids cloud entirely.
-    # Bypass with X-Skip-Shortcut: true header when the shortcut would misfire.
-    if not skip_shortcut and _is_data_query(user_message):
-        model = MODELS["tools"]
-        if not registry.is_available(model) or not registry.supports_tools(model):
-            model = registry.best_tools_model() or MODELS["default"]
-        data["model"] = model
-        print(f"[SmartRouter] [shortcut] '{user_message[:60]}' -> ⬡ {model} (data-query, tools model, no cloud)")
-        _record_route(user_message, model, "shortcut-data")
-        return data
-
-    # ── Tier-0b: tool-required queries → tools model ──────────────────────────
-    # IP lookups, credential queries, device lookups — these need MCP tool calls.
-    # Small models (qwen2.5:7b) produce hallucinations; force to mistral-small3.2:24b.
-    if not skip_shortcut and _is_tool_required_query(user_message):
-        model = MODELS["tools"]
-        if not registry.is_available(model) or not registry.supports_tools(model):
-            model = registry.best_tools_model() or MODELS["default"]
-        data["model"] = model
-        print(f"[SmartRouter] [tool-required] '{user_message[:60]}' -> ⬡ {model} (needs MCP tools)")
-        _record_route(user_message, model, "shortcut-tool-required")
         return data
 
     needs_tools = bool(data.get("tools") or data.get("functions"))
