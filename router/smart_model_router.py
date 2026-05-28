@@ -155,6 +155,27 @@ def _is_data_query(text: str) -> bool:
     return len(text) < 200 and bool(_SHORTCUT_PATTERN.search(text))
 
 
+# ── Tool-required queries — must reach a tool-capable model ──────────────────
+# These queries need MCP tool calls to answer correctly. Routing them to small
+# models (qwen2.5:7b, deepseek-r1) produces hallucinated or refusal responses.
+# Force to the 'tools' model (mistral-small3.2:24b) regardless of profile default.
+_TOOL_REQUIRED_PATTERN = re.compile(
+    r"(?i)\b("
+    r"(what\s+is\s+(the\s+)?ip|ip\s+of|ip\s+address\s+of)"
+    r"|(what\s+is\s+(the\s+)?(hostname|host|address)\s+of)"
+    r"|(look\s*up|find|get|fetch|retrieve).{0,20}(ip|address|credential|password|token|secret)"
+    r"|(what\s+(vlan|subnet|network)\s+(is|does|for))"
+    r"|(which\s+(server|host|node|device|machine)\s+(is|has|runs))"
+    r"|(credential|api.?key|password|token|secret)\s+(for|of)"
+    r")"
+)
+
+
+def _is_tool_required_query(text: str) -> bool:
+    """True for queries that need MCP tool calls — route to tools model."""
+    return len(text) < 300 and bool(_TOOL_REQUIRED_PATTERN.search(text))
+
+
 _CLASSIFY_MODEL = os.environ.get("CLASSIFY_MODEL", "qwen2.5:1.5b")
 
 _CLASSIFY_SYSTEM_PROMPT = (
@@ -402,6 +423,18 @@ async def handle_request(
         data["model"] = model
         print(f"[SmartRouter] [shortcut] '{user_message[:60]}' -> ⬡ {model} (data-query, no cloud)")
         _record_route(user_message, model, "shortcut-data")
+        return data
+
+    # ── Tier-0b: tool-required queries → tools model ──────────────────────────
+    # IP lookups, credential queries, device lookups — these need MCP tool calls.
+    # Small models (qwen2.5:7b) produce hallucinations; force to mistral-small3.2:24b.
+    if not skip_shortcut and _is_tool_required_query(user_message):
+        model = MODELS["tools"]
+        if not registry.is_available(model) or not registry.supports_tools(model):
+            model = registry.best_tools_model() or MODELS["default"]
+        data["model"] = model
+        print(f"[SmartRouter] [tool-required] '{user_message[:60]}' -> ⬡ {model} (needs MCP tools)")
+        _record_route(user_message, model, "shortcut-tool-required")
         return data
 
     needs_tools = bool(data.get("tools") or data.get("functions"))
