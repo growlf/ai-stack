@@ -146,6 +146,7 @@ _SHORTCUT_PATTERN = re.compile(
     r"|current\s+(proposals?|plans?|tasks?|work)"
     r"|what.{0,15}open\b"
     r"|what.{0,15}pending\b"
+    r"|outstanding\s+(proposals?|plans?|issues?|tasks?)"
     r")"
 )
 
@@ -167,6 +168,8 @@ _TOOL_REQUIRED_PATTERN = re.compile(
     r"|(what\s+(vlan|subnet|network)\s+(is|does|for))"
     r"|(which\s+(server|host|node|device|machine)\s+(is|has|runs))"
     r"|(credential|api.?key|password|token|secret)\s+(for|of)"
+    r"|outstanding\s+(proposals?|plans?|issues?|tasks?)"
+    r"|what\s+(proposals?|plans?|issues?)\s+(are\s+)?(there|exist|pending|outstanding|open)"
     r")"
 )
 
@@ -413,15 +416,16 @@ async def handle_request(
         return data
 
     # ── Tier-0 shortcut: data-retrieval queries ───────────────────────────────
-    # Short status/list queries never benefit from cloud. Skip classification
-    # and force the fast local default model regardless of active profile.
+    # Status/list/proposal queries need MCP tool calls to answer correctly.
+    # Route to the tools model (mistral-small3.2:24b) — not the default model
+    # (qwen2.5:7b) which cannot reliably call tools. Still avoids cloud entirely.
     # Bypass with X-Skip-Shortcut: true header when the shortcut would misfire.
     if not skip_shortcut and _is_data_query(user_message):
-        model = MODELS["default"]
-        if not registry.is_available(model):
-            model = registry.best_available() or model
+        model = MODELS["tools"]
+        if not registry.is_available(model) or not registry.supports_tools(model):
+            model = registry.best_tools_model() or MODELS["default"]
         data["model"] = model
-        print(f"[SmartRouter] [shortcut] '{user_message[:60]}' -> ⬡ {model} (data-query, no cloud)")
+        print(f"[SmartRouter] [shortcut] '{user_message[:60]}' -> ⬡ {model} (data-query, tools model, no cloud)")
         _record_route(user_message, model, "shortcut-data")
         return data
 
