@@ -53,6 +53,12 @@ CAPABILITY_REFRESH_INTERVAL = int(os.environ.get("CAPABILITY_REFRESH_INTERVAL", 
 
 ROUTER_PROFILE = os.environ.get("ROUTER_PROFILE", "hybrid")
 
+# ── Instrumentation — persistent routing log ──────────────────────────────────
+# Written as JSONL (one JSON object per line) for easy analysis and use as
+# classifier training data. Each entry captures: ts, query, category, model,
+# cloud, profile — enough to reconstruct routing decisions and label errors.
+ROUTER_LOG_FILE = os.environ.get("ROUTER_LOG_FILE", "/var/log/bms-router/routing.jsonl")
+
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 # Base URL WITHOUT /v1 suffix — path already starts with "v1/..."
 ANTHROPIC_BASE_URL = os.environ.get("ANTHROPIC_BASE_URL", "https://api.anthropic.com")
@@ -450,7 +456,7 @@ async def handle_request(
                 data[_CLOUD_ROUTE] = True
                 print(f"[SmartRouter] [{active_profile_name}] '{user_message[:60]}' "
                       f"-> ☁ {model} ({category})")
-                _record_route(user_message, model, f"cloud/{category}")
+                _record_route(user_message, model, f"cloud/{category}", profile=active_profile_name, cloud=True)
                 return data
 
         # Local route: apply tool-capability checks against Olla registry
@@ -468,7 +474,7 @@ async def handle_request(
 
         data["model"] = model
         print(f"[SmartRouter] [{active_profile_name}] '{user_message[:60]}' -> ⬡ {model} ({category})")
-        _record_route(user_message, model, category)
+        _record_route(user_message, model, category, profile=active_profile_name, cloud=False)
         return data
 
     # ── Legacy routing (no profile or unknown profile) ────────────────────────
@@ -506,18 +512,50 @@ async def handle_request(
     return data
 
 
-def _record_route(query: str, model: str, reason: str) -> None:
-    """Record a routing decision to the log and SSE event stream."""
+def _record_route(
+    query: str,
+    model: str,
+    reason: str,
+    profile: str | None = None,
+    cloud: bool = False,
+) -> None:
+    """Record a routing decision to the in-memory log, SSE stream, and JSONL file.
+
+    The JSONL file is the primary instrumentation artifact:
+    - Each line is a complete routing decision with enough context for analysis
+    - category field = classifier output (training label for fine-tuning)
+    - Used by scripts/review-routing-log.py to identify and correct misclassifications
+    - Corrected entries become training data for the custom classifier fine-tune
+    """
     global _request_count
     _request_count += 1
+
+    # Derive category from reason (strip fallback qualifiers)
+    category = reason.split("(")[0].strip().rstrip("-")
+    if "cloud/" in category:
+        category = category.replace("cloud/", "")
+
     entry = {
         "ts": time.time(),
-        "query": query[:80],
+        "query": query[:120],
+        "category": category,
         "model": model,
+        "cloud": cloud or "cloud/" in reason,
+        "profile": profile or ROUTER_PROFILE,
         "reason": reason,
     }
     _routing_log.appendleft(entry)
     asyncio.create_task(_push_event({"type": "route", **entry}))
+
+    # Persist to JSONL file for instrumentation and training data
+    try:
+        import pathlib
+        log_path = pathlib.Path(ROUTER_LOG_FILE)
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(log_path, "a") as f:
+            f.write(json.dumps(entry) + "\n")
+    except Exception as exc:
+        print(f"[SmartRouter] Log write failed ({exc}) — continuing without file log")
 
 
 # ── Gestalt cluster status ────────────────────────────────────────────────────
@@ -860,6 +898,61 @@ async def gestalt_events():
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@app.get("/gestalt/stats")
+async def gestalt_stats_summary():
+    """Aggregate routing stats from the persistent JSONL log file.
+
+    Returns cloud vs. local distribution, per-category breakdown, and
+    misclassification candidates (slow responses, unexpected model choices).
+    This is the primary Phase 2 instrumentation endpoint.
+    """
+    import pathlib
+    log_path = pathlib.Path(ROUTER_LOG_FILE)
+    if not log_path.exists():
+        return {
+            "error": f"Log file not found: {ROUTER_LOG_FILE}",
+            "hint": "Routing decisions are logged here after the first request.",
+        }
+
+    entries = []
+    try:
+        for line in log_path.read_text().splitlines():
+            line = line.strip()
+            if line:
+                entries.append(json.loads(line))
+    except Exception as e:
+        return {"error": f"Failed to read log: {e}"}
+
+    total = len(entries)
+    if total == 0:
+        return {"total": 0, "message": "No routing decisions logged yet."}
+
+    cloud_count  = sum(1 for e in entries if e.get("cloud"))
+    local_count  = total - cloud_count
+    by_category  = {}
+    by_model     = {}
+    slow_queries = []  # potential misclassifications (no latency yet — placeholder)
+
+    for e in entries:
+        cat = e.get("category", "unknown")
+        mdl = e.get("model", "unknown")
+        by_category[cat]  = by_category.get(cat, 0) + 1
+        by_model[mdl]     = by_model.get(mdl, 0) + 1
+
+    # Most recent 20 entries for quick review
+    recent = entries[-20:]
+
+    return {
+        "total_requests": total,
+        "cloud": {"count": cloud_count, "pct": round(cloud_count * 100 / total, 1)},
+        "local": {"count": local_count, "pct": round(local_count * 100 / total, 1)},
+        "by_category": dict(sorted(by_category.items(), key=lambda x: -x[1])),
+        "by_model":    dict(sorted(by_model.items(),    key=lambda x: -x[1])),
+        "log_file":    str(log_path),
+        "recent":      recent,
+    }
 
 
 @app.get("/gestalt/ui", response_class=HTMLResponse)

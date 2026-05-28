@@ -170,6 +170,9 @@ services:
       - ROUTER_PROFILE=${ROUTER_PROFILE:-hybrid}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - OPENCODE_API_KEY=${OPENCODE_API_KEY}
+      - ROUTER_LOG_FILE=/var/log/bms-router/routing.jsonl
+    volumes:
+      - router-logs:/var/log/bms-router
     depends_on:
       olla:
         condition: service_healthy
@@ -180,6 +183,7 @@ services:
 volumes:
   olla-logs:
   retriever-data:
+  router-logs:
 
 # ─── Networks ─────────────────────────────────────────────────────────────────
 networks:
