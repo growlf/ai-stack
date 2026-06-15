@@ -76,3 +76,28 @@ docker exec ollama ollama pull nomic-embed-text:latest
 
 docker exec ollama ollama pull qwen3.5:27b  # optional — needs 48 GB+ RAM
 ```
+
+---
+
+## Emerging Architecture Watch
+
+Technology tracking for model selection decisions 12–24 months out. Not actionable today — record here so future model evaluation doesn't miss these threads.
+
+### Mamba-2 / SSM-based reasoning models
+
+**Source:** "Tiny Recursive Reasoning with Mamba-2 Attention Hybrid" — Wang & Reid, ICLR 2026 (arxiv 2602.12078). MIT OASYS lab.
+
+**What it is:** State Space Models (SSMs) used as drop-in replacements for Transformer blocks in recursive reasoning architectures. The key property: **linear-time inference** — SSM complexity scales linearly with sequence length vs. Transformer's quadratic attention cost. This matters for long-context inference on memory-constrained hardware (Phoenix Arc, NUC nodes).
+
+**Current state:** Research-stage. Benchmarked on abstract visual reasoning (ARC-AGI-1, Sudoku, Maze) at 7M parameters — not yet production NLP models. Cannot replace `qwen2.5-coder:14b` or `mistral-small3.2:24b` today.
+
+**Why to watch for Olla routing:**
+- SSM models eliminate attention's quadratic memory cost — potentially runnable on iGPU nodes (Phoenix Arc, NUC) that can't sustain 14B Transformer models
+- Hybrid SSM+Attention models (like TR-mamba2attn) preserve reasoning quality while reducing inference cost
+- If SSM-based production LLMs reach tool-calling capability, they become strong candidates for low-priority or bulk routing slots in Olla
+
+**Action when production SSM models appear:** Benchmark against `qwen2.5:14b` on a representative query set. If tool-calling + latency are competitive, add as a routing tier in Olla config (e.g. low-priority slot for batch/async tasks). Update `docs/models.md` recommended stack.
+
+### Latent recursion (TRM pattern)
+
+Closely related: the same paper demonstrates reasoning via iterative hidden-state refinement without emitting intermediate tokens. Chain-of-thought (explicit reasoning tokens) has a real token cost — latent recursion eliminates it. If this pattern scales to NLP production models, async/batch analysis tasks (log analysis, vault indexing) become significantly cheaper. Monitor alongside SSM model maturation.
